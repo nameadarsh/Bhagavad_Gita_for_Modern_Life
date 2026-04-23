@@ -40,12 +40,12 @@ def create_app() -> FastAPI:
     base_dir = Path(__file__).resolve().parents[1]  # backend/
     setup_app_loggers(base_dir)
 
-    fastapi_app = FastAPI(title="Bhagavad Gita for Modern Life", version="1.0.0")
+    app = FastAPI(title="Bhagavad Gita for Modern Life", version="1.0.0")
 
     FRONTEND_URL = os.getenv("FRONTEND_URL")
     origins = [FRONTEND_URL] if FRONTEND_URL else ["*"]
 
-    fastapi_app.add_middleware(
+    app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
         allow_credentials=True,
@@ -53,7 +53,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    @fastapi_app.get("/")
+    @app.get("/")
     def root():
         return {
             "status": "ok",
@@ -61,73 +61,73 @@ def create_app() -> FastAPI:
             "version": "1.0.0"
         }
 
-    @fastapi_app.get("/health_check")
+    @app.get("/health_check")
     def health_check():
         return JSONResponse({"status": "ok", "service": "gita-rag-backend"})
 
-    @fastapi_app.get("/health")
+    @app.get("/health")
     def health():
-        rag_ready = getattr(fastapi_app.state, "rag_available", False)
+        rag_ready = getattr(app.state, "rag_available", False)
         return JSONResponse(
             {
                 "status": "ok",
                 "rag_available": rag_ready,
-                "verses": len(getattr(fastapi_app.state, "verses", []) or []) if rag_ready else 0,
-                "chapters": len(getattr(fastapi_app.state, "chapters", {}) or {}) if rag_ready else 0,
+                "verses": len(getattr(app.state, "verses", []) or []) if rag_ready else 0,
+                "chapters": len(getattr(app.state, "chapters", {}) or {}) if rag_ready else 0,
             }
         )
 
-    @fastapi_app.get("/favicon.ico")
+    @app.get("/favicon.ico")
     def favicon():
         return Response(status_code=204)
 
     # attach loggers
-    fastapi_app.state.conversations_logger = logging.getLogger("conversations")
-    fastapi_app.state.analytics_logger = logging.getLogger("analytics")
-    fastapi_app.state.rag_available = False
+    app.state.conversations_logger = logging.getLogger("conversations")
+    app.state.analytics_logger = logging.getLogger("analytics")
+    app.state.rag_available = False
 
     def load_rag_system():
         try:
             # load all cached resources once
             loaded = load_all(base_dir)
-            fastapi_app.state.verses = loaded.verses
-            fastapi_app.state.verses_by_id = loaded.verses_by_id
-            fastapi_app.state.chapters = loaded.chapters
-            fastapi_app.state.metadata = loaded.metadata
-            fastapi_app.state.faiss_index = loaded.faiss_index
-            fastapi_app.state.embedder = loaded.embedder
-            fastapi_app.state.prompts = loaded.prompts
+            app.state.verses = loaded.verses
+            app.state.verses_by_id = loaded.verses_by_id
+            app.state.chapters = loaded.chapters
+            app.state.metadata = loaded.metadata
+            app.state.faiss_index = loaded.faiss_index
+            app.state.embedder = loaded.embedder
+            app.state.prompts = loaded.prompts
 
             # services
             keys = ApiKeyManager()
-            fastapi_app.state.api_keys = keys
-            fastapi_app.state.rag_service = RagService(
+            app.state.api_keys = keys
+            app.state.rag_service = RagService(
                 verses_by_id=loaded.verses_by_id,
                 metadata=loaded.metadata,
                 faiss_index=loaded.faiss_index,
                 embedder=loaded.embedder,
             )
-            fastapi_app.state.query_service = QueryService(prompts=loaded.prompts, keys=keys)
-            fastapi_app.state.summarizer_service = SummarizerService(prompts=loaded.prompts, keys=keys)
-            fastapi_app.state.llm_service = LlmService(prompts=loaded.prompts, keys=keys)
-            fastapi_app.state.rag_available = True
+            app.state.query_service = QueryService(prompts=loaded.prompts, keys=keys)
+            app.state.summarizer_service = SummarizerService(prompts=loaded.prompts, keys=keys)
+            app.state.llm_service = LlmService(prompts=loaded.prompts, keys=keys)
+            app.state.rag_available = True
         except Exception as e:
-            fastapi_app.state.analytics_logger.error(f"rag_load_error: {e}")
-            fastapi_app.state.rag_available = False
+            app.state.analytics_logger.error(f"rag_load_error: {e}")
+            app.state.rag_available = False
 
     # Perform lazy loading
     load_rag_system()
 
     # sessions (in-memory)
-    fastapi_app.state.sessions = {}
+    app.state.sessions = {}
 
     # routes
-    fastapi_app.include_router(chat_router)
-    fastapi_app.include_router(verses_router)
-    fastapi_app.include_router(chapters_router)
-    fastapi_app.include_router(daily_router)
+    app.include_router(chat_router)
+    app.include_router(verses_router)
+    app.include_router(chapters_router)
+    app.include_router(daily_router)
 
-    return fastapi_app
+    return app
 
 
 app = create_app()
