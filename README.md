@@ -48,19 +48,22 @@ cd rag_gita
 cd backend
 python3 -m venv venv
 source venv/bin/activate
+# Installs optimized CPU-only dependencies for lightweight deployment
 pip install -r requirements.txt
-# Create .env file with your API keys
-uvicorn app.main:app --reload
+# Create .env file with your API keys (see backend/README.md for details)
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ### 3. Frontend Setup
 ```bash
 cd frontend
-# Create a venv for frontend management if desired, or use npm directly
 npm install
-# Create .env file with VITE_API_BASE_URL
+# Create .env file with VITE_API_BASE_URL=http://localhost:8000
 npm run dev
 ```
+
+## How to Stop
+To stop either the backend or frontend server, press `Ctrl + C` in the respective terminal window.
 
 ## Communication
 The frontend and backend communicate via a REST API. The frontend uses the `VITE_API_BASE_URL` environment variable to locate the FastAPI server (default: `http://localhost:8000`).

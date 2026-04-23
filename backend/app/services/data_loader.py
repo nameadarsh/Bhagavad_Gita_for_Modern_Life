@@ -91,7 +91,7 @@ def load_all(base_dir: Path) -> LoadedData:
         print(f"[DATA LOAD] Loaded {len(metadata)} metadata entries")
         print(f"[DATA LOAD] Index built with {faiss_index.ntotal} vectors")
 
-    embedder = SentenceTransformer("intfloat/multilingual-e5-base")
+    embedder = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
     prompts = load_prompts()
 
     chapters = build_chapters(verses)

@@ -20,6 +20,9 @@ A modern, responsive React application providing an intuitive interface for inte
    npm run dev
    ```
 
+## Stopping the App
+Press `Ctrl + C` in the terminal to stop the Vite development server.
+
 ## Features
 
 - **AI Guide**: Conversational chat interface with auto-scroll and thinking indicators.

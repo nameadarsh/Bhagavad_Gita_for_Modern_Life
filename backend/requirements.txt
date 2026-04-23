@@ -1,10 +1,12 @@
-sentence-transformers
-faiss-cpu
 fastapi
 uvicorn
 python-dotenv
-ollama
-tqdm
+sentence-transformers
+faiss-cpu
+numpy
 httpx
 pydantic
-numpy
+tqdm
+# Use CPU-only torch to save space/RAM on deployment
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch

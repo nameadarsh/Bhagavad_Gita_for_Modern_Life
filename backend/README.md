@@ -12,13 +12,17 @@ The backend is a FastAPI-powered service that handles the RAG (Retrieval-Augment
 
 2. **Install Dependencies**
    ```bash
+   # Installs optimized CPU-only torch to minimize RAM and disk usage
    pip install -r requirements.txt
    ```
 
 3. **Run the Server**
    ```bash
-   uvicorn app.main:app --reload
+   uvicorn app.main:app --host 0.0.0.0 --port 8000
    ```
+
+## Stopping the Server
+Press `Ctrl + C` in the terminal where the server is running.
 
 ## Environment Variables
 Create a `.env` file in the `backend/` directory with the following variables:
