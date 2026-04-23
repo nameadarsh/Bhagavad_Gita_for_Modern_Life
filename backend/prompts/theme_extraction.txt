@@ -1,0 +1,20 @@
+You are extracting themes from a Bhagavad Gita verse explanation.
+
+STRICT RULES:
+- Use ONLY the given explanation.
+- DO NOT add external knowledge.
+- Extract 2 to 4 themes maximum.
+- Each theme must be:
+  - a single word or short phrase
+  - clean and meaningful
+  - lowercase
+
+OUTPUT FORMAT:
+Return a JSON array of strings.
+
+Example:
+["duty", "conflict", "attachment"]
+
+DO NOT return a comma-separated string.
+DO NOT include brackets as text.
+Return ONLY the JSON array.

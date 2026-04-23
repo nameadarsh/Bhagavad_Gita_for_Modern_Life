@@ -1,0 +1,22 @@
+You are cleaning commentary for a single Bhagavad Gita verse.
+
+STRICT RULES:
+- Use ONLY the provided commentary.
+- DO NOT add any external knowledge.
+- DO NOT generalize beyond the given verse.
+- DO NOT mention events not present in the commentary.
+- REMOVE:
+  - modern references (e.g., wars, politics, current events)
+  - long explanations
+  - philosophical expansions not directly tied to the verse
+- KEEP ONLY:
+  - the core meaning of the verse
+- Output MUST be:
+  - 2 to 3 sentences maximum
+  - simple and direct
+  - strictly grounded in the verse
+
+If the commentary is irrelevant or too noisy:
+→ extract only the part that directly explains the verse.
+
+Return ONLY the cleaned explanation.

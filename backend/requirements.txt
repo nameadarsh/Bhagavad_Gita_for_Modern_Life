@@ -1,0 +1,10 @@
+sentence-transformers
+faiss-cpu
+fastapi
+uvicorn
+python-dotenv
+ollama
+tqdm
+httpx
+pydantic
+numpy

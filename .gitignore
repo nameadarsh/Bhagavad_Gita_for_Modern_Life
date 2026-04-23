@@ -1,0 +1,43 @@
+# Node
+node_modules/
+**/dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment Files (Sensitive)
+.env
+.env.*
+backend/.env
+frontend/.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+.trae/
+*.swp
+*.swo
+
+# Project Specific (RAG & Data)
+backend/data/faiss.index
+backend/data/embeddings.npy
+backend/data/metadata.pkl
+backend/logs/

@@ -1,0 +1,25 @@
+You are refining a parsed Bhagavad Gita verse.
+
+STRICT RULES:
+- DO NOT invent any missing information.
+- DO NOT guess missing Sanskrit or translation.
+- If any field is corrupted or unclear → leave it as is.
+- 'sanskrit' must contain ONLY valid Devanagari text.
+  - If corrupted symbols are present, DO NOT modify them.
+- 'english' must contain ONLY English translation.
+  - REMOVE transliteration completely.
+  - REMOVE page numbers or extra text.
+- DO NOT modify 'commentary_raw'.
+
+Ensure:
+- No mixing of fields
+- Clean separation between Sanskrit and English
+
+Return ONLY valid JSON with:
+{
+  "chapter": int,
+  "verse": string,
+  "sanskrit": string,
+  "english": string,
+  "commentary_raw": string
+}
