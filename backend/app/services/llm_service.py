@@ -4,7 +4,6 @@ import os
 import logging
 from typing import Any, Dict, Optional
 
-import ollama
 import httpx
 import re
 import json
@@ -85,14 +84,13 @@ class LlmService:
         """
         Production behavior:
         - If provider is dummy: return a safe grounded answer from dataset fields
-        - If provider is ollama: generate answer using prompt + dataset fields
         - Returns: {"answer": str, "fallback": bool}
         """
         provider = (os.getenv("LLM_PROVIDER", "dummy") or "dummy").strip().lower()
         llm_keys = (os.getenv("LLM_API_KEYS", "") or "").strip()
         
         # Production validation
-        if provider != "dummy" and provider != "ollama" and not llm_keys:
+        if provider != "dummy" and not llm_keys:
             raise ValueError(f"Missing required environment variable: LLM_API_KEYS for provider {provider}")
 
         override_model = (os.getenv("LLM_MODEL", "") or "").strip()
@@ -143,10 +141,7 @@ class LlmService:
                     self.logger.warning(f"llm_autofix skip_invalid_key provider=groq key_index={key_index}")
                     continue
                 self.logger.info(f"llm_attempt provider={provider} model={model} key_index={key_index}")
-                if provider == "ollama":
-                    resp = ollama.chat(model=model, messages=[{"role": "user", "content": prompt}])
-                    out = (resp.get("message", {}) or {}).get("content", "").strip()
-                elif provider == "groq":
+                if provider == "groq":
                     out = self._call_openai_like(
                         base_url="https://api.groq.com/openai/v1/chat/completions",
                         api_key=api_key,

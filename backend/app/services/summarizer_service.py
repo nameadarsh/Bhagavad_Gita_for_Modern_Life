@@ -8,7 +8,6 @@ from app.services.prompt_loader import load_prompt
 from app.services.model_manager import model_manager
 import logging
 import httpx
-import ollama
 
 DEBUG = False
 
@@ -90,10 +89,7 @@ class SummarizerService:
                     self.logger.warning(f"small_llm_autofix skip_invalid_key task=summarize provider=groq key_index={key_index}")
                     continue
                 self.logger.info(f"small_llm_attempt task=summarize provider={provider} model={model} key_index={key_index}")
-                if provider == "ollama":
-                    resp = ollama.chat(model=model, messages=[{"role": "user", "content": rendered}])
-                    out = (resp.get("message", {}) or {}).get("content", "").strip()
-                elif provider == "groq":
+                if provider == "groq":
                     out = call_openai_like("https://api.groq.com/openai/v1/chat/completions", api_key, model, rendered)
                 elif provider == "openai":
                     out = call_openai_like("https://api.openai.com/v1/chat/completions", api_key, model, rendered)

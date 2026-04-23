@@ -4,7 +4,6 @@ import os
 import re
 from typing import Dict, List, Optional, Tuple
 
-import ollama
 import httpx
 
 
@@ -53,18 +52,10 @@ class ModelManager:
             if m not in candidates:
                 candidates.append(m)
 
-        # 4) Provider discovery for ollama
-        if provider == "ollama":
-            for m in self._discover_ollama_models():
-                if m not in candidates:
-                    candidates.append(m)
-
         return [c for c in candidates if c]
 
     def discover_provider_models(self, provider: str, api_key: Optional[str] = None) -> List[str]:
         provider = (provider or "").strip().lower()
-        if provider == "ollama":
-            return self._discover_ollama_models()
         if provider == "groq":
             return self._discover_groq_models(api_key or "")
         return []
@@ -73,13 +64,6 @@ class ModelManager:
         override = os.getenv("LLM_MODEL" if task == "chat" else "SMALL_LLM_MODEL", "") or ""
         if override.strip():
             return override.strip()
-
-        if provider == "ollama":
-            discovered = self._discover_ollama_models()
-            if discovered:
-                # choose largest for chat, smallest for small
-                ranked = self._rank_ollama_by_size(discovered)
-                return ranked[-1] if task == "chat" else ranked[0]
 
         priority = self._priority_list(provider, task)
         return priority[0] if priority else ""
@@ -94,24 +78,7 @@ class ModelManager:
             )
         if provider == "openai":
             return ["gpt-4.1", "gpt-4o"] if task == "chat" else ["gpt-4o-mini", "gpt-3.5-turbo"]
-        if provider == "ollama":
-            # discovery handles actual selection; this is only a last-resort hint
-            return []
         return []
-
-    @staticmethod
-    def _discover_ollama_models() -> List[str]:
-        try:
-            payload = ollama.list()
-            models = payload.get("models", []) or []
-            names = []
-            for m in models:
-                name = getattr(m, "model", None) or m.get("model")
-                if name:
-                    names.append(str(name))
-            return names
-        except Exception:
-            return []
 
     @staticmethod
     def _discover_groq_models(api_key: str) -> List[str]:
@@ -133,16 +100,6 @@ class ModelManager:
                 return out
         except Exception:
             return []
-
-    @staticmethod
-    def _rank_ollama_by_size(models: List[str]) -> List[str]:
-        def size_key(name: str) -> int:
-            # heuristic: parse "70b", "8b", etc.
-            m = re.search(r"(\d+)\s*b", name.lower())
-            return int(m.group(1)) if m else 0
-
-        return sorted(models, key=size_key)
-
 
 model_manager = ModelManager()
 

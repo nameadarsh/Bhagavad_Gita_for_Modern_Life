@@ -1,34 +1,44 @@
-import ollama
+import os
 import time
 import re
+import httpx
 from utils.logger import pipeline_logger, error_logger
 
-def check_ollama_status():
-    try:
-        models = ollama.list()
-        # Verify mistral is available
-        if not any('mistral' in m.model.lower() for m in models.get('models', [])):
-            pipeline_logger.warning("Mistral model not found in Ollama. Please pull it.")
-            return False
-        return True
-    except Exception as e:
-        error_logger.error(f"Ollama server does not appear to be running: {e}")
-        return False
+def call_llm(prompt, system_prompt, retries=3):
+    """Helper function to call LLM (Groq/OpenAI) with retries."""
+    provider = os.getenv("LLM_PROVIDER", "groq").lower()
+    api_key = os.getenv("LLM_API_KEYS", "").split(",")[0].strip()
+    
+    if not api_key:
+        error_logger.error("LLM enrichment failed: No API key found.")
+        return None
 
-def call_ollama(prompt, system_prompt, retries=3):
-    """Helper function to call ollama mistral model with retries."""
+    base_url = "https://api.groq.com/openai/v1/chat/completions" if provider == "groq" else "https://api.openai.com/v1/chat/completions"
+    model = "llama3-8b-8192" if provider == "groq" else "gpt-3.5-turbo"
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.0
+    }
+
     for attempt in range(retries):
         try:
-            response = ollama.chat(model='mistral', messages=[
-                {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': prompt}
-            ])
-            return response['message']['content']
+            with httpx.Client(timeout=30.0) as client:
+                r = client.post(base_url, headers=headers, json=payload)
+                if r.status_code >= 400:
+                    raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+                data = r.json()
+                return data["choices"][0]["message"]["content"].strip()
         except Exception as e:
-            error_logger.warning(f"Ollama call failed (attempt {attempt+1}/{retries}): {str(e)}")
+            error_logger.warning(f"LLM call failed (attempt {attempt+1}/{retries}): {str(e)}")
             time.sleep(2)
             
-    error_logger.error("Ollama call failed completely after all retries.")
+    error_logger.error("LLM call failed completely after all retries.")
     return None
 
 def _clamp_sentences(text: str, max_sentences: int = 4) -> str:
@@ -74,7 +84,7 @@ def generate_brief_explanation(commentary_text: str) -> str:
     """
     if not (commentary_text or "").strip():
         return ""
-    response = call_ollama(commentary_text.strip(), _EXPLANATION_SYSTEM_PROMPT)
+    response = call_llm(commentary_text.strip(), _EXPLANATION_SYSTEM_PROMPT)
     if not response:
         return ""
     return _clamp_sentences(response.strip(), max_sentences=3)
@@ -86,7 +96,7 @@ def generate_themes(explanation: str):
     """
     if not (explanation or "").strip():
         return []
-    response = call_ollama(explanation.strip(), _THEMES_SYSTEM_PROMPT)
+    response = call_llm(explanation.strip(), _THEMES_SYSTEM_PROMPT)
     if not response:
         return []
     raw = [t for t in response.split(",")]

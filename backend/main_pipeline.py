@@ -4,7 +4,7 @@ import argparse
 from utils.logger import pipeline_logger, error_logger
 from pipeline.load_dataset import load_verses
 from pipeline.clean_dataset import clean_verses
-from pipeline.llm_processor import generate_brief_explanation, generate_themes, check_ollama_status
+from pipeline.llm_processor import generate_brief_explanation, generate_themes
 from pipeline.json_builder import build_json
 from pipeline.build_faiss import build_faiss
 from utils.validators import validate_dataset, validate_faiss_consistency
@@ -36,10 +36,6 @@ def main():
 
     # Step 3: (Optional) LLM enrichment
     if not args.skip_llm:
-        if not check_ollama_status():
-            error_logger.error("Pipeline halted due to Ollama unavailability (disable with --skip-llm).")
-            sys.exit(1)
-
         pipeline_logger.info(f"Enriching {len(verses)} verses with LLM...")
         for v in tqdm(verses, desc="LLM Enrichment"):
             explanation = generate_brief_explanation(v.get("_commentary", ""))
