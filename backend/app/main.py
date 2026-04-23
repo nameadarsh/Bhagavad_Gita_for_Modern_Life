@@ -63,11 +63,13 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health():
+        rag_ready = getattr(app.state, "rag_available", False)
         return JSONResponse(
             {
                 "status": "ok",
-                "verses": len(getattr(app.state, "verses", []) or []),
-                "chapters": len(getattr(app.state, "chapters", {}) or {}),
+                "rag_available": rag_ready,
+                "verses": len(getattr(app.state, "verses", []) or []) if rag_ready else 0,
+                "chapters": len(getattr(app.state, "chapters", {}) or {}) if rag_ready else 0,
             }
         )
 
@@ -78,29 +80,39 @@ def create_app() -> FastAPI:
     # attach loggers
     app.state.conversations_logger = logging.getLogger("conversations")
     app.state.analytics_logger = logging.getLogger("analytics")
+    app.state.rag_available = False
 
-    # load all cached resources once
-    loaded = load_all(base_dir)
-    app.state.verses = loaded.verses
-    app.state.verses_by_id = loaded.verses_by_id
-    app.state.chapters = loaded.chapters
-    app.state.metadata = loaded.metadata
-    app.state.faiss_index = loaded.faiss_index
-    app.state.embedder = loaded.embedder
-    app.state.prompts = loaded.prompts
+    def load_rag_system():
+        try:
+            # load all cached resources once
+            loaded = load_all(base_dir)
+            app.state.verses = loaded.verses
+            app.state.verses_by_id = loaded.verses_by_id
+            app.state.chapters = loaded.chapters
+            app.state.metadata = loaded.metadata
+            app.state.faiss_index = loaded.faiss_index
+            app.state.embedder = loaded.embedder
+            app.state.prompts = loaded.prompts
 
-    # services
-    keys = ApiKeyManager()
-    app.state.api_keys = keys
-    app.state.rag_service = RagService(
-        verses_by_id=loaded.verses_by_id,
-        metadata=loaded.metadata,
-        faiss_index=loaded.faiss_index,
-        embedder=loaded.embedder,
-    )
-    app.state.query_service = QueryService(prompts=loaded.prompts, keys=keys)
-    app.state.summarizer_service = SummarizerService(prompts=loaded.prompts, keys=keys)
-    app.state.llm_service = LlmService(prompts=loaded.prompts, keys=keys)
+            # services
+            keys = ApiKeyManager()
+            app.state.api_keys = keys
+            app.state.rag_service = RagService(
+                verses_by_id=loaded.verses_by_id,
+                metadata=loaded.metadata,
+                faiss_index=loaded.faiss_index,
+                embedder=loaded.embedder,
+            )
+            app.state.query_service = QueryService(prompts=loaded.prompts, keys=keys)
+            app.state.summarizer_service = SummarizerService(prompts=loaded.prompts, keys=keys)
+            app.state.llm_service = LlmService(prompts=loaded.prompts, keys=keys)
+            app.state.rag_available = True
+        except Exception as e:
+            app.state.analytics_logger.error(f"rag_load_error: {e}")
+            app.state.rag_available = False
+
+    # Perform lazy loading
+    load_rag_system()
 
     # sessions (in-memory)
     app.state.sessions = {}

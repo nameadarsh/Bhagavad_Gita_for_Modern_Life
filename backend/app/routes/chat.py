@@ -21,6 +21,24 @@ def chat(req: ChatRequest, request: Request):
     session_id = req.session_id or str(uuid.uuid4())
     query = req.query.strip()
 
+    # check if RAG is available
+    if not getattr(state, "rag_available", False):
+        return ChatResponse(
+            session_id=session_id,
+            answer="I apologize, but my spiritual archives are currently being reorganized. Please try again in a moment.",
+            verse=Verse(
+                id="N/A",
+                chapter=0,
+                verse=0,
+                speaker="System",
+                sanskrit="",
+                english="Retrieval Unavailable",
+                brief_explanation="The backend system was unable to load the sacred texts.",
+                themes=[]
+            ),
+            meta={"fallback": True, "error": "RAG_UNAVAILABLE"}
+        )
+
     # session store
     session = state.sessions.setdefault(session_id, {"history": [], "summary": ""})
 
