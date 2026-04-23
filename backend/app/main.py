@@ -68,10 +68,18 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health():
         rag_ready = getattr(app.state, "rag_available", False)
+        # Check if heavy embedder is actually loaded
+        try:
+            from app.services.rag_service import _EMBEDDER
+            embedder_loaded = _EMBEDDER is not None
+        except ImportError:
+            embedder_loaded = False
+            
         return JSONResponse(
             {
                 "status": "ok",
                 "rag_available": rag_ready,
+                "embedder_loaded": embedder_loaded,
                 "verses": len(getattr(app.state, "verses", []) or []) if rag_ready else 0,
                 "chapters": len(getattr(app.state, "chapters", {}) or {}) if rag_ready else 0,
             }
@@ -95,7 +103,6 @@ def create_app() -> FastAPI:
             app.state.chapters = loaded.chapters
             app.state.metadata = loaded.metadata
             app.state.faiss_index = loaded.faiss_index
-            app.state.embedder = loaded.embedder
             app.state.prompts = loaded.prompts
 
             # services
@@ -105,7 +112,6 @@ def create_app() -> FastAPI:
                 verses_by_id=loaded.verses_by_id,
                 metadata=loaded.metadata,
                 faiss_index=loaded.faiss_index,
-                embedder=loaded.embedder,
             )
             app.state.query_service = QueryService(prompts=loaded.prompts, keys=keys)
             app.state.summarizer_service = SummarizerService(prompts=loaded.prompts, keys=keys)
@@ -115,8 +121,15 @@ def create_app() -> FastAPI:
             app.state.analytics_logger.error(f"rag_load_error: {e}")
             app.state.rag_available = False
 
-    # Perform lazy loading
-    load_rag_system()
+    @app.middleware("http")
+    async def ensure_rag_loaded(request: Request, call_next):
+        if request.url.path in ["/chat", "/health"] and not getattr(app.state, "rag_available", False):
+            # Try to load if not already loaded (first request to heavy endpoint)
+            load_rag_system()
+        return await call_next(request)
+
+    # Perform lazy loading (disabled for instant startup)
+    # load_rag_system()
 
     # sessions (in-memory)
     app.state.sessions = {}

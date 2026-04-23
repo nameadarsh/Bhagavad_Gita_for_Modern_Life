@@ -5,8 +5,26 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import faiss
 import re
+from sentence_transformers import SentenceTransformer
 
 DEBUG = False
+_EMBEDDER = None
+
+
+def get_embedder():
+    global _EMBEDDER
+    if _EMBEDDER is None:
+        try:
+            # Lazy load the small model only when first needed
+            _EMBEDDER = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+        except Exception as e:
+            # Log but don't crash; retrieval will fail gracefully
+            import logging
+            logging.getLogger("analytics").error(f"failed_to_load_embedder: {e}")
+            return None
+    return _EMBEDDER
+
+
 _STOPWORDS = {
     "the", "and", "for", "that", "this", "with", "from", "into", "your", "you", "are", "was",
     "were", "have", "has", "had", "not", "but", "can", "all", "its", "his", "her", "their",
@@ -21,16 +39,18 @@ class RagService:
         verses_by_id: Dict[str, Dict[str, Any]],
         metadata: List[Dict[str, Any]],
         faiss_index: faiss.Index,
-        embedder,
     ) -> None:
         self.verses_by_id = verses_by_id
         self.metadata = metadata
         self.index = faiss_index
-        self.embedder = embedder
 
-    def embed_query(self, query: str) -> np.ndarray:
+    def embed_query(self, query: str) -> Optional[np.ndarray]:
+        embedder = get_embedder()
+        if embedder is None:
+            return None
+
         # e5 models: prefix query with "query: "
-        vec = self.embedder.encode([f"query: {query}"], convert_to_numpy=True)
+        vec = embedder.encode([f"query: {query}"], convert_to_numpy=True)
         vec = vec.astype("float32")
         faiss.normalize_L2(vec)
         return vec[0]
@@ -130,6 +150,12 @@ class RagService:
         """
         user_intent = self._classify_intent(query)
         vector = self.embed_query(query)
+        if vector is None:
+            # Fallback to a random verse if embedding fails (e.g. model failed to load)
+            import random
+            verse_id = list(self.verses_by_id.keys())[random.randint(0, len(self.verses_by_id) - 1)]
+            return self.verses_by_id[verse_id], {"mode": "fallback", "verse_id": verse_id, "error": "EMBEDDING_FAILED"}
+
         hits = self.search_index(vector, top_k=5)
         if not hits:
             raise RuntimeError("No FAISS hits")

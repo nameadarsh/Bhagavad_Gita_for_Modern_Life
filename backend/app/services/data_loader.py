@@ -21,7 +21,6 @@ class LoadedData:
     chapters: Dict[int, Dict[str, Any]]
     metadata: List[Dict[str, Any]]
     faiss_index: faiss.Index
-    embedder: SentenceTransformer
     prompts: Dict[str, str]
 
 
@@ -91,7 +90,6 @@ def load_all(base_dir: Path) -> LoadedData:
         print(f"[DATA LOAD] Loaded {len(metadata)} metadata entries")
         print(f"[DATA LOAD] Index built with {faiss_index.ntotal} vectors")
 
-    embedder = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
     prompts = load_prompts()
 
     chapters = build_chapters(verses)
@@ -102,7 +100,6 @@ def load_all(base_dir: Path) -> LoadedData:
         chapters=chapters,
         metadata=metadata,
         faiss_index=faiss_index,
-        embedder=embedder,
         prompts=prompts,
     )
 
