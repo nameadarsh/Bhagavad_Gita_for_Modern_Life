@@ -16,6 +16,15 @@ const Chat = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasSentInitialQuery = useRef(false);
 
+  // Initialize: Clear stale history if no active session is continued
+  useEffect(() => {
+    // If we land here without a verse context (not continuing a specific thought)
+    // and we don't have a session, ensure a clean slate
+    if (!sessionId && messages.length > 0) {
+      clearHistory();
+    }
+  }, []);
+
   // Handle incoming navigation state (e.g. from "Ask this shlok")
   useEffect(() => {
     const handleInitialState = async () => {

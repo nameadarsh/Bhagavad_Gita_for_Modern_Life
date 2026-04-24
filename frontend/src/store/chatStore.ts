@@ -19,7 +19,10 @@ export const useChatStore = create<ChatState>()(
       addMessage: (message) => set((state) => ({ 
         messages: [...state.messages, message] 
       })),
-      clearHistory: () => set({ messages: [], sessionId: null }),
+      clearHistory: () => {
+        set({ messages: [], sessionId: null });
+        localStorage.removeItem('gita-chat-storage');
+      },
     }),
     {
       name: 'gita-chat-storage',
