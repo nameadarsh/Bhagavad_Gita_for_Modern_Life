@@ -54,27 +54,35 @@ const Chat = () => {
     setIsLoading(true);
 
     try {
-      const response = await chatApi.sendQuery(
+      const data = await chatApi.sendQuery(
         trimmedQuery, 
         sessionId || undefined, 
         verseId || (showContext ? contextVerse?.id : undefined)
       );
       
-      if (response.session_id && !sessionId) {
-        setSessionId(response.session_id);
+      console.log("API response:", data);
+
+      if (!data || !data.answer) {
+        throw new Error("Invalid response format: missing answer field");
+      }
+      
+      if (data.session_id && !sessionId) {
+        setSessionId(data.session_id);
       }
 
       addMessage({
         role: 'ai',
-        content: response.answer,
-        verse: response.verse,
-        meta: response.meta
+        content: data.answer,
+        verse: data.verse,
+        meta: data.meta
       });
-    } catch (error) {
-      console.error('Chat error:', error);
+    } catch (error: any) {
+      console.error('Chat error details:', error);
+      const errorMessage = error?.response?.data?.detail || error?.message || 'I apologize, but I am having trouble connecting to the sacred teachings right now. Please try again in a moment.';
+      
       addMessage({
         role: 'ai',
-        content: 'I apologize, but I am having trouble connecting to the sacred teachings right now. Please try again in a moment.'
+        content: errorMessage
       });
     } finally {
       setIsLoading(false);
