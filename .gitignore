@@ -36,8 +36,5 @@ Thumbs.db
 *.swp
 *.swo
 
-# Project Specific (RAG & Data)
-backend/data/faiss.index
-backend/data/embeddings.npy
-backend/data/metadata.pkl
+# Project Specific (Logs)
 backend/logs/
