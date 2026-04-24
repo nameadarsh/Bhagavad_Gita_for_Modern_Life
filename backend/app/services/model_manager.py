@@ -72,9 +72,9 @@ class ModelManager:
     def _priority_list(provider: str, task: str) -> List[str]:
         if provider == "groq":
             return (
-                ["llama3-70b-8192", "mixtral-8x7b-32768", "llama3-8b-8192"]
+                ["llama3-70b-8192", "mixtral-8x7b-32768", "llama-3.1-8b-instant"]
                 if task == "chat"
-                else ["llama3-8b-8192", "mixtral-8x7b-32768"]
+                else ["llama-3.1-8b-instant", "llama3-8b-8192", "mixtral-8x7b-32768"]
             )
         if provider == "openai":
             return ["gpt-4.1", "gpt-4o"] if task == "chat" else ["gpt-4o-mini", "gpt-3.5-turbo"]
@@ -95,7 +95,7 @@ class ModelManager:
                 out = []
                 for m in models:
                     mid = m.get("id")
-                    if mid:
+                    if mid and "whisper" not in mid.lower():
                         out.append(str(mid))
                 return out
         except Exception:

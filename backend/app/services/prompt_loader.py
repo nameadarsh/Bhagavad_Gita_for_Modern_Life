@@ -6,10 +6,20 @@ import logging
 
 
 _PROMPT_CACHE: Dict[str, str] = {}
-DEBUG = True
+DEBUG = False
 
 
 DEBUG = False
+
+
+def invalidate_prompt_cache(filename: Optional[str] = None) -> None:
+    """
+    Clear the prompt cache for a specific file or all files.
+    """
+    if filename:
+        _PROMPT_CACHE.pop(filename, None)
+    else:
+        _PROMPT_CACHE.clear()
 
 
 def load_prompt(filename: str) -> str:
