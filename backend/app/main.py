@@ -4,7 +4,7 @@ from pathlib import Path
 import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -43,11 +43,15 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Bhagavad Gita for Modern Life", version="1.0.0")
 
     FRONTEND_URL = os.getenv("FRONTEND_URL")
-    origins = [FRONTEND_URL] if FRONTEND_URL else ["*"]
+    origins = [
+        FRONTEND_URL,
+        "http://localhost:5173",  # Local development
+        "https://gita-rag.vercel.app"  # Likely production URL
+    ] if FRONTEND_URL else ["*"]
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=origins,
+        allow_origins=["*"], # Temporarily allow all for debugging connectivity
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -123,25 +127,22 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def ensure_rag_loaded(request: Request, call_next):
-        if request.url.path in ["/chat", "/health"] and not getattr(app.state, "rag_available", False):
+        # Update paths to include the prefix if necessary
+        if request.url.path in ["/api/v1/chat", "/api/v1/health", "/chat", "/health"] and not getattr(app.state, "rag_available", False):
             # Try to load if not already loaded (first request to heavy endpoint)
             load_rag_system()
         return await call_next(request)
 
-    # Perform lazy loading (disabled for instant startup)
-    # load_rag_system()
-
     # sessions (in-memory)
     app.state.sessions = {}
 
-    # routes
-    app.include_router(chat_router)
-    app.include_router(verses_router)
-    app.include_router(chapters_router)
-    app.include_router(daily_router)
+    # include routers with prefix
+    app.include_router(chat_router, prefix="/api/v1")
+    app.include_router(verses_router, prefix="/api/v1")
+    app.include_router(chapters_router, prefix="/api/v1")
+    app.include_router(daily_router, prefix="/api/v1")
 
     return app
 
 
 app = create_app()
-
