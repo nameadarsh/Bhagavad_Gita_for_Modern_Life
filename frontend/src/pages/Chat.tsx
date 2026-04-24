@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Send, Trash2, Sparkles, Loader2, Info, X } from 'lucide-react';
+import { Send, Trash2, Sparkles, Info, X } from 'lucide-react';
 import { chatApi, gitaApi } from '../services/api';
 import { useChatStore } from '../store/chatStore';
 import ChatMessage from '../components/ChatMessage';
