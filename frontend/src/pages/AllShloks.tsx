@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { List, Search, Loader2, ChevronDown, Info } from 'lucide-react';
-import { gitaApi } from '../services/api';
+import { dataService } from '../data/dataService';
 import type { Verse } from '../types';
 import ShlokCard from '../components/ShlokCard';
 
@@ -13,14 +13,14 @@ const AllShloks = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [visibleCount, setVisibleCount] = useState(VERSES_PER_PAGE);
 
-  const fetchVerses = async () => {
+  const loadVerses = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await gitaApi.getAllVerses();
+      const data = dataService.getAllVerses();
       setVerses(data);
     } catch (err) {
-      console.error('Failed to fetch verses:', err);
+      console.error('Failed to load verses:', err);
       setError('The collection could not be retrieved at this time.');
     } finally {
       setIsLoading(false);
@@ -28,7 +28,7 @@ const AllShloks = () => {
   };
 
   useEffect(() => {
-    fetchVerses();
+    loadVerses();
   }, []);
 
   const filteredVerses = useMemo(() => {
@@ -91,11 +91,11 @@ const AllShloks = () => {
           </div>
           <p className="text-slate-600 font-medium">{error}</p>
           <button
-            onClick={fetchVerses}
-            className="w-full px-6 py-3 bg-orange-600 text-white font-bold rounded-2xl hover:bg-orange-700 transition-colors shadow-lg shadow-orange-600/20"
-          >
-            Retry Connection
-          </button>
+          onClick={loadVerses}
+          className="w-full px-6 py-3 bg-orange-600 text-white font-bold rounded-2xl hover:bg-orange-700 transition-colors shadow-lg shadow-orange-600/20"
+        >
+          Retry Connection
+        </button>
         </div>
       ) : (
         <div className="space-y-10">

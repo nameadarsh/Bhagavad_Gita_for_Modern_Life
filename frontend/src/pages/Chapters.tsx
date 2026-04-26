@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { BookOpen, ChevronRight, Loader2, Users, Tag, Info } from 'lucide-react';
-import { gitaApi } from '../services/api';
+import { dataService } from '../data/dataService';
 import type { ChapterInfo } from '../types';
 
 const Chapters = () => {
@@ -9,14 +9,14 @@ const Chapters = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchChapters = async () => {
+  const loadChapters = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await gitaApi.getChapters();
+      const data = dataService.getChapters();
       setChapters(data);
     } catch (err) {
-      console.error('Failed to fetch chapters:', err);
+      console.error('Failed to load chapters:', err);
       setError('Unable to load the eighteen chapters. Please try again.');
     } finally {
       setIsLoading(false);
@@ -24,7 +24,7 @@ const Chapters = () => {
   };
 
   useEffect(() => {
-    fetchChapters();
+    loadChapters();
   }, []);
 
   if (isLoading) {
@@ -44,7 +44,7 @@ const Chapters = () => {
         </div>
         <p className="text-slate-600 font-medium">{error}</p>
         <button
-          onClick={fetchChapters}
+          onClick={loadChapters}
           className="w-full px-6 py-3 bg-orange-600 text-white font-bold rounded-2xl hover:bg-orange-700 transition-colors shadow-lg shadow-orange-600/20"
         >
           Retry Connection

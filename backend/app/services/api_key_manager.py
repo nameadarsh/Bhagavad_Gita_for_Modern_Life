@@ -6,17 +6,11 @@ from typing import List, Optional, Tuple
 
 from dotenv import load_dotenv
 
-DEBUG = False
-
-
 class ApiKeyManager:
     def __init__(self) -> None:
         load_dotenv()
         self._llm_keys = self._load_keys_env(var_name="LLM_API_KEYS", legacy_prefix="LLM_API_KEY_")
         self._small_llm_keys = self._load_keys_env(var_name="SMALL_LLM_API_KEYS", legacy_prefix="SMALL_LLM_API_KEY_")
-
-        if DEBUG:
-            print(f"[ApiKeyManager] Loaded {len(self._llm_keys)} main keys, {len(self._small_llm_keys)} small keys")
 
         self._llm_cycle = itertools.cycle(list(enumerate(self._llm_keys))) if self._llm_keys else None
         self._small_cycle = itertools.cycle(list(enumerate(self._small_llm_keys))) if self._small_llm_keys else None

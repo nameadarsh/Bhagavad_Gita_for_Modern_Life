@@ -25,23 +25,23 @@ Press `Ctrl + C` in the terminal to stop the Vite development server.
 
 ## Features
 
-- **AI Guide**: Conversational chat interface with auto-scroll and thinking indicators.
-- **Contextual Wisdom**: Use the "Ask about this" button on any verse to get immediate AI guidance for that specific shlok.
-- **Daily Wisdom**: A dedicated page for a fresh daily perspective.
-- **Chapter Explorer**: Browse all 18 chapters with speaker and theme breakdowns.
-- **Advanced Search**: Filter all 700 verses by Sanskrit, English, or themes.
+- **AI Guide**: Real-time streaming conversational interface with context-aware guidance.
+- **Multilingual Support**: Supports 11 Indian languages for both text and audio guidance.
+- **Audio System**: High-quality TTS for AI responses and pre-recorded static audio for shloks.
+- **Chapter Explorer**: Browse all 18 chapters with themes, speakers, and verse-by-verse breakdowns.
+- **Ask about this**: Instantly bridge the gap between ancient verses and modern queries.
 
 ## Tech Stack
 
-- **React + Vite**: For a fast development experience and optimized builds.
-- **TypeScript**: Ensuring type safety across components and API responses.
-- **Tailwind CSS**: Modern styling with a responsive card-based layout.
-- **Zustand**: Lightweight state management with persistence for chat history.
-- **React Router**: Seamless navigation across the single-page application.
-- **Axios**: Robust API communication.
+- **React + Vite**: Fast, modern frontend framework.
+- **TypeScript**: Type-safe development for complex state and API flows.
+- **Zustand**: Persistent state management for chat history and audio control.
+- **Tailwind CSS**: Beautiful, responsive UI with a spiritual aesthetic.
+- **Lucide React**: Clean and intuitive iconography.
 
 ## State Management
 
-We use **Zustand** for global state management. The `useChatStore` handles:
-- **Session IDs**: Automatically managed to keep conversation context.
-- **Message History**: Persisted in the browser's local storage so you don't lose your conversation on refresh.
+We use **Zustand** with persistence to manage:
+- **Chat History**: Messages are saved locally to maintain continuity across sessions.
+- **Global Audio**: A centralized controller for seamless playback, preloading, and queuing of audio chunks.
+- **User Preferences**: Language selection and session management.

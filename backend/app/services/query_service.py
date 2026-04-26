@@ -9,10 +9,6 @@ from app.services.model_manager import model_manager
 import logging
 import httpx
 import re
-
-DEBUG = False
-
-
 import json
 
 class QueryService:
@@ -141,43 +137,29 @@ class QueryService:
         """
         q = query.lower()
 
-        # First: infer what the user actually needs (desired_outcome)
-        # based on emotional/situational keywords
+        # Simple Intent Mapping per requirements
         if any(w in q for w in ["sad", "depressed", "unhappy", "sorrow", "grief", "pain", "crying", "lost", "broken"]):
-            desired_outcome = "strength"
-            intent = "emotional_sadness"
+            desired_outcome = "uplifting guidance"
+            intent = "sad"
         elif any(w in q for w in ["fear", "afraid", "scared", "anxious", "worry", "stress", "tension", "panic", "nervous"]):
-            desired_outcome = "stability"
-            intent = "emotional_anxiety"
+            desired_outcome = "strength"
+            intent = "fear"
         elif any(w in q for w in ["confused", "unsure", "doubt", "not sure", "uncertain", "dilemma", "which"]):
             desired_outcome = "clarity"
-            intent = "emotional_confusion"
-        elif any(w in q for w in ["motivation", "inspire", "energy", "tired", "give up", "unmotivated", "lazy", "hopeless"]):
-            desired_outcome = "purpose"
-            intent = "emotional_motivation"
-        elif any(w in q for w in ["decision", "choice", "choose", "what to do", "should i", "shouldn't i"]):
-            desired_outcome = "dharma"
-            intent = "situational_decision"
-        elif any(w in q for w in ["wrong", "justify", "moral", "ethics", "evil", "right vs", "lesser evil"]):
-            desired_outcome = "dharma"
-            intent = "situational_moral_conflict"
-        elif any(w in q for w in ["conflict", "fight", "argument", "enemy", "rival", "war"]):
-            desired_outcome = "strength"
-            intent = "situational_conflict"
-        elif any(w in q for w in ["what is", "who is", "explain", "meaning of", "tell me about", "understand"]):
-            desired_outcome = "wisdom"
-            intent = "knowledge_query"
+            intent = "confused"
+        elif any(w in q for w in ["what is", "who is", "explain", "meaning of", "tell me about", "understand", "philosophical", "philosophy"]):
+            desired_outcome = "deeper explanation"
+            intent = "philosophical"
         else:
             desired_outcome = "wisdom"
             intent = "general"
 
-        # Theme mapping based on inferred need, not literal keywords
+        # Theme mapping based on inferred need
         theme_mapping = {
-            "strength": ["soul", "eternal", "detachment", "peace", "devotion", "karma"],
-            "stability": ["detachment", "equanimity", "faith", "self", "peace", "surrender"],
+            "uplifting guidance": ["soul", "eternal", "detachment", "peace", "devotion", "hope"],
+            "strength": ["duty", "action", "discipline", "purpose", "yoga", "strength"],
             "clarity": ["dharma", "knowledge", "wisdom", "guidance", "truth"],
-            "purpose": ["duty", "action", "discipline", "yoga", "karma", "devotion"],
-            "dharma": ["duty", "righteousness", "truth", "action", "detachment"],
+            "deeper explanation": ["knowledge", "jnana", "wisdom", "self", "philosophy"],
             "wisdom": ["knowledge", "jnana", "wisdom", "self", "understanding"]
         }
         themes = theme_mapping.get(desired_outcome, theme_mapping["wisdom"])

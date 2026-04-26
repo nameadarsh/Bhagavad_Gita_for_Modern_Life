@@ -10,6 +10,7 @@ export interface Verse {
 }
 
 export interface ChatMessage {
+  id: string;
   role: 'user' | 'ai';
   content: string;
   verse?: Verse;

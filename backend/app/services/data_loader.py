@@ -6,12 +6,8 @@ from pathlib import Path
 from typing import Dict, List, Any
 
 import faiss
-from sentence_transformers import SentenceTransformer
 
 from app.services.prompt_loader import load_prompt
-
-
-DEBUG = False
 
 
 @dataclass(frozen=True)
@@ -85,10 +81,6 @@ def load_all(base_dir: Path) -> LoadedData:
         raise RuntimeError("FAISS index not found at data/faiss.index. Ensure data is prepared.")
 
     faiss_index = faiss.read_index(str(faiss_path))
-    if DEBUG:
-        print(f"[DATA LOAD] Loaded {len(verses)} total verses")
-        print(f"[DATA LOAD] Loaded {len(metadata)} metadata entries")
-        print(f"[DATA LOAD] Index built with {faiss_index.ntotal} vectors")
 
     prompts = load_prompts()
 

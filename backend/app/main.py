@@ -16,19 +16,12 @@ from app.services.rag_service import RagService
 from app.services.llm_service import LlmService
 from app.services.query_service import QueryService
 from app.services.summarizer_service import SummarizerService
+from app.services.tts_service import TtsService
 from app.routes.chat import router as chat_router
-from app.routes.verses import router as verses_router
-from app.routes.chapters import router as chapters_router
-from app.routes.daily import router as daily_router
-
-DEBUG = False
-
+# verses, chapters, daily routers removed as they are now handled by frontend static data
 
 def create_app() -> FastAPI:
     load_dotenv()
-    if DEBUG:
-        print("LLM_PROVIDER:", os.getenv("LLM_PROVIDER"))
-        print("SMALL_LLM_PROVIDER:", os.getenv("SMALL_LLM_PROVIDER"))
 
     missing = []
     for var in ["LLM_PROVIDER", "SMALL_LLM_PROVIDER", "LLM_API_KEYS"]:
@@ -44,14 +37,15 @@ def create_app() -> FastAPI:
 
     FRONTEND_URL = os.getenv("FRONTEND_URL")
     origins = [
-        FRONTEND_URL,
-        "http://localhost:5173",  # Local development
-        "https://gita-rag.vercel.app"  # Likely production URL
-    ] if FRONTEND_URL else ["*"]
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
+    if FRONTEND_URL:
+        origins.append(FRONTEND_URL)
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"], # Temporarily allow all for debugging connectivity
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -120,6 +114,7 @@ def create_app() -> FastAPI:
             app.state.query_service = QueryService(prompts=loaded.prompts, keys=keys)
             app.state.summarizer_service = SummarizerService(prompts=loaded.prompts, keys=keys)
             app.state.llm_service = LlmService(prompts=loaded.prompts, keys=keys)
+            app.state.tts_service = TtsService()
             app.state.rag_available = True
         except Exception as e:
             app.state.analytics_logger.error(f"rag_load_error: {e}")
@@ -127,8 +122,13 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def ensure_rag_loaded(request: Request, call_next):
-        # Update paths to include the prefix if necessary
-        if request.url.path in ["/api/v1/chat", "/api/v1/health", "/chat", "/health"] and not getattr(app.state, "rag_available", False):
+        # List of prefixes or paths that require RAG system to be loaded
+        # Only /chat and /tts (via /api/v1 prefix) now need RAG
+        rag_dependent_prefixes = ["/api/v1/chat", "/api/v1/tts", "/chat"]
+        
+        should_load = any(request.url.path.startswith(prefix) for prefix in rag_dependent_prefixes)
+        
+        if should_load and not getattr(app.state, "rag_available", False):
             # Try to load if not already loaded (first request to heavy endpoint)
             load_rag_system()
         return await call_next(request)
@@ -138,9 +138,7 @@ def create_app() -> FastAPI:
 
     # include routers with prefix
     app.include_router(chat_router, prefix="/api/v1")
-    app.include_router(verses_router, prefix="/api/v1")
-    app.include_router(chapters_router, prefix="/api/v1")
-    app.include_router(daily_router, prefix="/api/v1")
+    # Verses, Chapters, and Daily routes moved to frontend static data
 
     return app
 

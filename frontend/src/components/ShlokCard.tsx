@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { ChevronDown, ChevronUp, MessageCircle } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { ChevronDown, ChevronUp, MessageCircle, Volume2, VolumeX, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useChatStore } from '../store/chatStore';
 import type { Verse } from '../types';
 
 interface ShlokCardProps {
@@ -10,7 +11,74 @@ interface ShlokCardProps {
 
 const ShlokCard = ({ verse, defaultExpanded = false }: ShlokCardProps) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [isLocalLoading, setIsLocalLoading] = useState(false);
+  const [placeholderType, setPlaceholderType] = useState<string | null>(null);
+  
+  const placeholderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
+
+  const { 
+    playingMessageId, 
+    playingAudioType,
+    stopAudio,
+    playAudio,
+  } = useChatStore();
+
+  useEffect(() => {
+    return () => {
+      if (placeholderTimerRef.current) clearTimeout(placeholderTimerRef.current);
+    };
+  }, []);
+
+  const isShlokPlaying = playingMessageId === verse.id && playingAudioType === 'shlok';
+  const isTranslationPlaying = playingMessageId === verse.id && playingAudioType === 'translation';
+  const isExplanationPlaying = playingMessageId === verse.id && playingAudioType === 'explanation';
+
+  const handlePlayStaticAudio = async (type: 'shlok' | 'explanation' | 'translation') => {
+    if (type === 'translation' || type === 'explanation') {
+      if (placeholderTimerRef.current) clearTimeout(placeholderTimerRef.current);
+      setPlaceholderType(type);
+      placeholderTimerRef.current = setTimeout(() => {
+        setPlaceholderType(null);
+      }, 2000);
+      return;
+    }
+
+    const isCurrentlyPlaying = playingMessageId === verse.id && playingAudioType === type;
+    if (isCurrentlyPlaying) {
+      stopAudio();
+      return;
+    }
+
+    // Deterministic static URL based on chapter and verse
+    const staticBaseUrl = "https://fshfxtshvffidmuevofm.supabase.co/storage/v1/object/public/shlok_audio";
+    const key = `${verse.chapter}_${verse.verse}`;
+    
+    // Map internal type to Supabase folder
+    const folderMap = {
+      'shlok': 'shlok',
+      'translation': 'translation',
+      'explanation': 'explanation'
+    };
+    
+    const audioUrl = `${staticBaseUrl}/${folderMap[type]}/${key}.mp3`;
+
+    setIsLocalLoading(true);
+
+    try {
+      await playAudio(
+        verse.id,
+        [audioUrl],
+        type,
+        () => setIsLocalLoading(false),
+        () => setIsLocalLoading(false),
+        () => setIsLocalLoading(false)
+      );
+    } catch (error) {
+      console.error(`Failed to play ${type} audio:`, error);
+      setIsLocalLoading(false);
+    }
+  };
 
   const handleAsk = () => {
     navigate('/', { state: { verseId: verse.id, initialQuery: `Explain Chapter ${verse.chapter}, Verse ${verse.verse}` } });
@@ -69,12 +137,52 @@ const ShlokCard = ({ verse, defaultExpanded = false }: ShlokCardProps) => {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2 pt-2">
-            {verse.themes.map((theme, i) => (
-              <span key={i} className="px-3 py-1 bg-orange-50 text-orange-700 text-[10px] font-bold rounded-full border border-orange-100 uppercase tracking-wide">
-                #{theme}
-              </span>
-            ))}
+          <div className="flex flex-col gap-4 pt-2">
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePlayStaticAudio('shlok');
+                }}
+                disabled={isLocalLoading}
+                className="inline-flex items-center gap-[6px] text-[14px] font-medium text-[#f97316] hover:text-orange-700 transition-colors disabled:opacity-50 bg-none border-none p-0 cursor-pointer"
+              >
+                {isShlokPlaying ? <VolumeX size={16} className="text-red-500" /> : <Volume2 size={16} />}
+                <span>{placeholderType === 'shlok' ? 'Coming soon' : 'Shlok Audio'}</span>
+              </button>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePlayStaticAudio('translation');
+                }}
+                disabled={isLocalLoading}
+                className="inline-flex items-center gap-[6px] text-[14px] font-medium text-[#f97316] hover:text-orange-700 transition-colors disabled:opacity-50 bg-none border-none p-0 cursor-pointer"
+              >
+                {isTranslationPlaying ? <VolumeX size={16} className="text-red-500" /> : <Volume2 size={16} />}
+                <span>{placeholderType === 'translation' ? 'Coming soon' : 'Translation'}</span>
+              </button>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePlayStaticAudio('explanation');
+                }}
+                disabled={isLocalLoading}
+                className="inline-flex items-center gap-[6px] text-[14px] font-medium text-[#f97316] hover:text-orange-700 transition-colors disabled:opacity-50 bg-none border-none p-0 cursor-pointer"
+              >
+                {isExplanationPlaying ? <VolumeX size={16} className="text-red-500" /> : <Volume2 size={16} />}
+                <span>{placeholderType === 'explanation' ? 'Coming soon' : 'Explanation'}</span>
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {verse.themes.map((theme, i) => (
+                <span key={i} className="text-[14px] px-[10px] py-[4px] bg-orange-50 text-orange-600 font-bold rounded-full border border-orange-100 uppercase">
+                  #{theme}
+                </span>
+              ))}
+            </div>
           </div>
 
           <div className="pt-4 flex justify-end">

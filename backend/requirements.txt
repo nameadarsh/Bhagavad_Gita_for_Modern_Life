@@ -1,12 +1,9 @@
 fastapi
 uvicorn
 python-dotenv
-sentence-transformers
+fastembed
 faiss-cpu
 numpy
 httpx
 pydantic
-tqdm
-# Use CPU-only torch to save space/RAM on deployment
---extra-index-url https://download.pytorch.org/whl/cpu
-torch
+supabase

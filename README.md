@@ -35,6 +35,14 @@ The system follows a robust RAG pipeline:
 - `backend/`: FastAPI server, RAG logic, data processing, and FAISS index.
 - `frontend/`: React application, UI components, and API integration.
 
+## API Endpoints
+
+- `POST /api/v1/chat`: Main endpoint for the conversational assistant.
+  - Body: `{ "query": "string", "session_id": "optional_string", "verse_id": "optional_id", "language": "en" }`
+- `POST /api/v1/tts`: Generate audio chunks for a given text.
+  - Body: `{ "text": "string", "language": "en" }`
+- `GET /health`: Detailed health status of the RAG system.
+
 ## Setup Instructions
 
 ### 1. Clone the Repository
@@ -48,9 +56,9 @@ cd rag_gita
 cd backend
 python3 -m venv venv
 source venv/bin/activate
-# Installs optimized CPU-only dependencies for lightweight deployment
+# Installs core dependencies for FastAPI, FAISS, and TTS
 pip install -r requirements.txt
-# Create .env file with your API keys (see backend/README.md for details)
+# Create .env file with your API keys (see backend/README.md)
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 

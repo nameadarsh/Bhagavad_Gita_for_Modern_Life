@@ -6,10 +6,6 @@ import logging
 
 
 _PROMPT_CACHE: Dict[str, str] = {}
-DEBUG = False
-
-
-DEBUG = False
 
 
 def invalidate_prompt_cache(filename: Optional[str] = None) -> None:
@@ -33,8 +29,6 @@ def load_prompt(filename: str) -> str:
     prompts_dir = Path(__file__).resolve().parents[1] / "prompts"
     path = prompts_dir / filename
     content = path.read_text(encoding="utf-8") if path.exists() else ""
-    if DEBUG:
-        print(f"[PROMPT LOAD] {filename}: {content[:100]!r}")
     if not content.strip():
         logging.getLogger("analytics").warning(f"Prompt file empty: skipping LLM ({filename})")
     _PROMPT_CACHE[filename] = content

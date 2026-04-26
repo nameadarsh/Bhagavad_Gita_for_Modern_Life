@@ -12,19 +12,32 @@ from app.services.api_key_manager import ApiKeyManager
 from app.services.prompt_loader import load_prompt, invalidate_prompt_cache
 from app.services.model_manager import model_manager
 
-DEBUG = False
-
-
 class LlmService:
     def __init__(self, *, prompts: dict, keys: ApiKeyManager) -> None:
         self.prompts = prompts
         self.keys = keys
         self.logger = logging.getLogger("analytics")
 
-    def _render_prompt(self, *, query: str, verse: Dict[str, Any], chapter_summary: Optional[str] = None, intent: str = "general", desired_outcome: str = "wisdom") -> str:
+    def _render_prompt(self, *, query: str, verse: Dict[str, Any], chapter_summary: Optional[str] = None, intent: str = "general", desired_outcome: str = "wisdom", language: str = "en") -> str:
         # Production: reload prompt to pick up changes
         invalidate_prompt_cache("chat_prompt.txt")
         template = load_prompt("chat_prompt.txt").strip()
+        
+        # Phase 11: Expanded Language Mapping
+        lang_map = {
+            "en": "English",
+            "hi": "Hindi",
+            "bn": "Bengali",
+            "ta": "Tamil",
+            "te": "Telugu",
+            "gu": "Gujarati",
+            "kn": "Kannada",
+            "ml": "Malayalam",
+            "mr": "Marathi",
+            "pa": "Punjabi",
+            "or": "Odia"
+        }
+        language_name = lang_map.get(language.lower(), "English")
         
         intent_descriptions = {
             "emotional_motivation": "a need for inspiration and purpose to overcome inertia.",
@@ -44,11 +57,14 @@ class LlmService:
             intent=intent,
             intent_desc=intent_descriptions.get(intent, "a search for wisdom."),
             desired_outcome=desired_outcome,
+            language_name=language_name,
             sanskrit=str(verse.get("sanskrit", "")),
             english=str(verse.get("english", "")),
             explanation=str(verse.get("brief_explanation", "")),
             speaker=str(verse.get("speaker", "")),
             chapter_summary=chapter_summary or "",
+            chapter=verse.get("chapter", 0),
+            verse_num=verse.get("verse", 0)
         )
 
     @staticmethod
@@ -146,7 +162,7 @@ class LlmService:
         
         return text.strip()
 
-    def answer(self, *, query: str, verse: Dict[str, Any], chapter_summary: Optional[str] = None, voice_output: bool = False, intent: str = "general", desired_outcome: str = "wisdom") -> Dict[str, Any]:
+    def answer(self, *, query: str, verse: Dict[str, Any], chapter_summary: Optional[str] = None, voice_output: bool = False, intent: str = "general", desired_outcome: str = "wisdom", language: str = "en") -> Dict[str, Any]:
         """
         Production behavior:
         - If provider is dummy: return a safe grounded answer from dataset fields
@@ -166,7 +182,8 @@ class LlmService:
                 verse=verse, 
                 chapter_summary=chapter_summary, 
                 intent=intent,
-                desired_outcome=desired_outcome
+                desired_outcome=desired_outcome,
+                language=language
             )
         except Exception as e:
             self.logger.error(f"llm_prompt_render_error err={e}")
@@ -231,19 +248,67 @@ class LlmService:
                     if not isinstance(data, dict):
                         raise ValueError(f"Expected dict, got {type(data).__name__}")
                     
-                    reflection = data.get("reflection", "").strip()
-                    connection = data.get("connection", "").strip()
-                    meaning = data.get("meaning", "").strip()
+                    # 1. Extract response text
+                    response_text = data.get("response", "").strip()
                     
-                    if not (reflection or connection or meaning):
-                        raise ValueError("Empty JSON fields")
+                    # Fallback for old field names if LLM ignores the new prompt initially
+                    if not response_text:
+                        reflection = data.get("connection", "").strip()
+                        insight = data.get("insight", "").strip()
+                        meaning = data.get("meaning", "").strip()
+                        if reflection or insight or meaning:
+                            response_text = f"{reflection}\n\n{insight}\n\n{meaning}".strip()
+                    
+                    if not response_text:
+                        raise ValueError("Empty response field")
 
-                    final_answer = f"""{reflection}
+                    # Phase 8: Content Quality Refinement (Post-processing)
+                    # 1. Normalize spacing and line breaks
+                    response_text = re.sub(r'\n{3,}', '\n\n', response_text) # Max 2 newlines
+                    response_text = re.sub(r' +', ' ', response_text) # No extra spaces
+                    
+                    # 2. Simple deduplication of consecutive identical sentences
+                    sentences = re.split(r'(?<=[.!?])\s+', response_text)
+                    unique_sentences = []
+                    for s in sentences:
+                        s = s.strip()
+                        if not unique_sentences or s != unique_sentences[-1]:
+                            unique_sentences.append(s)
+                    response_text = " ".join(unique_sentences)
+                    
+                    # 3. Ensure clean paragraph breaks (the split might have lost them)
+                    # Note: The prompt asks for 4-5 paragraphs. Let's re-split into paragraphs if lost.
+                    if '\n\n' not in response_text and len(unique_sentences) > 4:
+                        # Heuristic: split into 4-5 paragraphs
+                        chunk_size = len(unique_sentences) // 4
+                        paragraphs = []
+                        for i in range(0, len(unique_sentences), chunk_size):
+                            paragraphs.append(" ".join(unique_sentences[i:i+chunk_size]))
+                        response_text = "\n\n".join(paragraphs[:5])
 
-{connection}
+                    # 2. Final cleaning: remove robotic artifacts and em-dashes
+                    response_text = self._clean_robotic_formatting(response_text)
+                    response_text = response_text.replace("—", " - ")
+                    
+                    # Additional strict cleaning: Remove any lines that look like headers (e.g., "1. Problem Framing:")
+                    response_text = re.sub(r"^\d+\.\s+.*:", "", response_text, flags=re.MULTILINE)
+                    response_text = re.sub(r"^\*\*\d+\.\s+.*:\*\*", "", response_text, flags=re.MULTILINE)
+                    response_text = re.sub(r"^Problem Framing:", "", response_text, flags=re.MULTILINE | re.IGNORECASE)
+                    response_text = re.sub(r"^Gita Context:", "", response_text, flags=re.MULTILINE | re.IGNORECASE)
+                    response_text = re.sub(r"^Krishna’s Teaching:", "", response_text, flags=re.MULTILINE | re.IGNORECASE)
+                    response_text = re.sub(r"^Practical Meaning:", "", response_text, flags=re.MULTILINE | re.IGNORECASE)
 
-{meaning}"""
-                    return {"answer": final_answer.strip(), "fallback": False}
+                    # 3. Security: ensure shlok or translation is NOT inside response text
+                    # If LLM hallucinated shlok into response, we strip it
+                    sanskrit_in_verse = (data.get("verse", {}) if isinstance(data.get("verse"), dict) else {}).get("sanskrit", "")
+                    if sanskrit_in_verse and sanskrit_in_verse in response_text:
+                        response_text = response_text.replace(sanskrit_in_verse, "").strip()
+                    
+                    # Also strip common verse markers if they appear
+                    response_text = re.sub(r"Verse\s+\d+\.\d+", "", response_text)
+                    response_text = re.sub(r"Chapter\s+\d+", "", response_text)
+
+                    return {"answer": response_text.strip(), "fallback": False}
 
                 except (json.JSONDecodeError, ValueError, AttributeError) as e:
                     self.logger.warning(f"llm_json_parse_error attempt={attempt} err={e}")
@@ -254,10 +319,13 @@ class LlmService:
             except Exception as e:
                 self.logger.error(f"llm_failure attempt={attempt} model={model} err={e}")
                 if attempt == max_attempts - 1:
-                    return {"answer": self._fallback_answer(verse, intent, desired_outcome), "fallback": True}
+                    # Phase 9: Edge Case Handling - Clean Fallback Message
+                    fallback_msg = "I am unable to provide a detailed explanation at this moment. Please reflect on the wisdom of the verse provided above while I resolve this connection issue."
+                    return {"answer": fallback_msg, "fallback": True}
                 continue
 
         # All failed
         self.logger.info(f"llm_fallback reason=all_failed provider={provider}")
-        return {"answer": self._fallback_answer(verse, intent, desired_outcome), "fallback": True}
+        fallback_msg = "I am unable to provide a detailed explanation at this moment. Please reflect on the wisdom of the verse provided above while I resolve this connection issue."
+        return {"answer": fallback_msg, "fallback": True}
 

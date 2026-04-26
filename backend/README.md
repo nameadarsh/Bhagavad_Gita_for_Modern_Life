@@ -32,24 +32,23 @@ LLM_PROVIDER=groq  # or openai
 LLM_API_KEYS=your_key_1,your_key_2
 SMALL_LLM_PROVIDER=groq
 SMALL_LLM_API_KEYS=your_key_small
-SARVAM_API_KEY=your_sarvam_key_for_tts (optional)
+SARVAM_API_KEY=your_sarvam_key_for_tts
+SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_KEY=your_supabase_service_key
+SUPABASE_BUCKET=rag_gita_audio
 ```
 
-## API Endpoints
+## API Endpoints (Prefix: /api/v1)
 
-- `POST /chat`: Main endpoint for the conversational assistant.
-  - Body: `{ "query": "string", "session_id": "optional_string", "verse_id": "optional_id" }`
-- `GET /verses`: Retrieve all 700 verses with metadata.
-- `GET /chapter/{id}`: Get all verses for a specific chapter (1-18).
-- `GET /daily`: Get a randomly selected "Verse of the Day".
-- `GET /verse/{id}`: Get details for a specific verse (e.g., `BG1.1`).
+- `POST /chat`: Main streaming endpoint for the AI Guide.
+  - Body: `{ "query": "string", "session_id": "optional_string", "verse_id": "optional_id", "language": "en" }`
+- `POST /tts`: Generate deterministic audio chunks for dynamic LLM content.
+  - Body: `{ "text": "string", "language": "en" }`
+- `GET /health`: Returns RAG readiness and model status.
 
-## RAG Pipeline Explanation
+## RAG Pipeline
 
-1. **Embedding**: The user's query is converted into a vector using `SentenceTransformer`.
-2. **FAISS Retrieval**: The system searches the vector index for the top 5 semantically similar verses.
-3. **Intent-Aware Reranking**: 
-   - Classifies user intent (e.g., `moral_conflict`, `confusion`).
-   - Classifies verse type (e.g., `guidance`, `warning`).
-   - Applies bonuses or penalties to the retrieval score to ensure contextually appropriate results.
-4. **LLM Response**: The best-ranked verse is sent to the LLM (e.g., Llama-3 via Groq) with a custom prompt to generate a reflective, grounded answer.
+1. **Query Refinement**: Intent analysis (e.g., `confusion`, `duty`) to prioritize appropriate guidance.
+2. **FAISS Retrieval**: Semantic search for the top relevant verses from the Bhagavad Gita.
+3. **LLM Synthesis**: Grounded response generation using provider-aware model discovery and API key cycling.
+4. **TTS Generation**: Audio chunking via Sarvam AI with caching in Supabase for high-quality guidance.

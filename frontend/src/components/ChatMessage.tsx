@@ -1,5 +1,7 @@
-import { User, Bot, ChevronDown, ChevronUp } from 'lucide-react';
-import { useState } from 'react';
+import { User, Bot, ChevronDown, ChevronUp, Volume2, Loader2, VolumeX, AlertCircle } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { chatApi } from '../services/api';
+import { useChatStore } from '../store/chatStore';
 import type { ChatMessage as ChatMessageType } from '../types';
 
 interface ChatMessageProps {
@@ -9,6 +11,111 @@ interface ChatMessageProps {
 const ChatMessage = ({ message }: ChatMessageProps) => {
   const isAi = message.role === 'ai';
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isLocalLoading, setIsLocalLoading] = useState(false);
+  const [placeholderType, setPlaceholderType] = useState<string | null>(null);
+  
+  const placeholderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (placeholderTimerRef.current) clearTimeout(placeholderTimerRef.current);
+    };
+  }, []);
+  
+  const { 
+    playingMessageId, 
+    playingAudioType,
+    stopAudio,
+    playAudio,
+    language,
+  } = useChatStore();
+
+  const isPlaying = playingMessageId === message.id && playingAudioType === 'chat';
+  const isShlokPlaying = playingMessageId === message.id && playingAudioType === 'shlok';
+  const isTranslationPlaying = playingMessageId === message.id && playingAudioType === 'translation';
+  const isExplanationPlaying = playingMessageId === message.id && playingAudioType === 'explanation';
+
+  const handlePlayAudio = async () => {
+    if (isPlaying) {
+      stopAudio();
+      return;
+    }
+
+    if (isLocalLoading || !message.content) return;
+    
+    setIsLocalLoading(true);
+    
+    try {
+      const data = await chatApi.generateTts(message.content, language);
+      const urls = data.audio_urls || (data.audio_url ? [data.audio_url] : []);
+      
+      if (urls.length > 0) {
+        await playAudio(
+          message.id, 
+          urls, 
+          'chat', 
+          () => setIsLocalLoading(false),
+          () => setIsLocalLoading(false),
+          () => setIsLocalLoading(false)
+        );
+      } else {
+        setIsLocalLoading(false);
+      }
+    } catch (error) {
+      console.error('Failed to play audio:', error);
+      setIsLocalLoading(false);
+    }
+  };
+
+  const handlePlayStaticAudio = async (type: 'shlok' | 'explanation' | 'translation') => {
+    if (type === 'translation' || type === 'explanation') {
+      if (placeholderTimerRef.current) clearTimeout(placeholderTimerRef.current);
+      setPlaceholderType(type);
+      placeholderTimerRef.current = setTimeout(() => {
+        setPlaceholderType(null);
+      }, 2000);
+      return;
+    }
+
+    const isCurrentlyPlaying = playingMessageId === message.id && playingAudioType === type;
+    if (isCurrentlyPlaying) {
+      stopAudio();
+      return;
+    }
+
+    // Use deterministic URL if verse info is available
+    let audioUrl = message.meta?.audio?.[type];
+    if (!audioUrl && message.verse) {
+      const staticBaseUrl = "https://fshfxtshvffidmuevofm.supabase.co/storage/v1/object/public/shlok_audio";
+      const key = `${message.verse.chapter}_${message.verse.verse}`;
+      const folderMap = {
+        'shlok': 'shlok',
+        'translation': 'translation',
+        'explanation': 'explanation'
+      };
+      audioUrl = `${staticBaseUrl}/${folderMap[type]}/${key}.mp3`;
+    }
+
+    if (!audioUrl) {
+      return;
+    }
+
+    setIsLocalLoading(true);
+
+    try {
+      await playAudio(
+        message.id,
+        [audioUrl],
+        type,
+        () => setIsLocalLoading(false),
+        () => setIsLocalLoading(false),
+        () => setIsLocalLoading(false)
+      );
+    } catch (error) {
+      console.error(`Failed to play ${type} audio:`, error);
+      setIsLocalLoading(false);
+    }
+  };
 
   // Improved paragraph splitting: based on character length (~250-300 chars)
   const formatContent = (content: string) => {
@@ -63,10 +170,33 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
                 </p>
               ))}
             </div>
-            {isFallback && (
-              <p className="mt-4 text-[10px] text-slate-400 font-medium italic border-t border-slate-100 pt-2 opacity-70">
-                Note: Response generated using fallback mode.
-              </p>
+            
+            {isAi && message.content && (
+              <div className="mt-4 flex items-center justify-between border-t border-orange-50 pt-3">
+                <button
+                  onClick={handlePlayAudio}
+                  disabled={isLocalLoading}
+                  className="inline-flex items-center gap-[6px] text-[14px] font-medium text-[#f97316] hover:text-orange-700 transition-colors disabled:opacity-50 bg-none border-none p-0 cursor-pointer"
+                >
+                  {isLocalLoading ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : isPlaying ? (
+                    <VolumeX size={16} className="text-red-500" />
+                  ) : (
+                    <Volume2 size={16} />
+                  )}
+                  <span>
+                    {isLocalLoading ? 'Loading...' : 
+                     isPlaying ? 'Stop' : 
+                     'Listen to Guidance'}
+                  </span>
+                </button>
+                {isFallback && (
+                  <p className="text-[10px] text-slate-400 font-medium italic opacity-70">
+                    Fallback mode
+                  </p>
+                )}
+              </div>
             )}
           </div>
 
@@ -100,13 +230,38 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
                       {message.verse.brief_explanation}
                     </p>
                   </div>
-                  <div className="flex justify-between items-center pt-2">
-                    <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded-md">
-                      Speaker: {message.verse.speaker}
-                    </span>
-                    <div className="flex gap-1.5">
+                  <div className="flex flex-col gap-3 pt-2">
+                    <div className="flex flex-wrap gap-x-6 gap-y-2">
+                      <button
+                        onClick={() => handlePlayStaticAudio('shlok')}
+                        disabled={isLocalLoading}
+                        className="inline-flex items-center gap-[6px] text-[14px] font-medium text-[#f97316] hover:text-orange-700 transition-colors disabled:opacity-50 bg-none border-none p-0 cursor-pointer"
+                      >
+                        {isShlokPlaying ? <VolumeX size={16} className="text-red-500" /> : <Volume2 size={16} />}
+                        <span>{placeholderType === 'shlok' ? 'Coming soon' : 'Shlok Audio'}</span>
+                      </button>
+
+                      <button
+                        onClick={() => handlePlayStaticAudio('translation')}
+                        disabled={isLocalLoading}
+                        className="inline-flex items-center gap-[6px] text-[14px] font-medium text-[#f97316] hover:text-orange-700 transition-colors disabled:opacity-50 bg-none border-none p-0 cursor-pointer"
+                      >
+                        {isTranslationPlaying ? <VolumeX size={16} className="text-red-500" /> : <Volume2 size={16} />}
+                        <span>{placeholderType === 'translation' ? 'Coming soon' : 'Translation'}</span>
+                      </button>
+
+                      <button
+                        onClick={() => handlePlayStaticAudio('explanation')}
+                        disabled={isLocalLoading}
+                        className="inline-flex items-center gap-[6px] text-[14px] font-medium text-[#f97316] hover:text-orange-700 transition-colors disabled:opacity-50 bg-none border-none p-0 cursor-pointer"
+                      >
+                        {isExplanationPlaying ? <VolumeX size={16} className="text-red-500" /> : <Volume2 size={16} />}
+                        <span>{placeholderType === 'explanation' ? 'Coming soon' : 'Explanation'}</span>
+                      </button>
+                    </div>
+                    <div className="flex gap-2">
                       {message.verse.themes.slice(0, 3).map((t, i) => (
-                        <span key={i} className="text-[9px] px-2 py-0.5 bg-orange-50 text-orange-600 font-bold rounded-full border border-orange-100 uppercase">
+                        <span key={i} className="text-[14px] px-[10px] py-[4px] bg-orange-50 text-orange-600 font-bold rounded-full border border-orange-100 uppercase">
                           {t}
                         </span>
                       ))}

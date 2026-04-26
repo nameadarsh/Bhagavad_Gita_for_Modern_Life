@@ -9,9 +9,6 @@ from app.services.model_manager import model_manager
 import logging
 import httpx
 
-DEBUG = False
-
-
 class SummarizerService:
     """
     Lightweight conversation summarizer.
@@ -79,13 +76,7 @@ class SummarizerService:
             api_key = self.keys.get_small_llm_key() or ""
             key_index = self.keys.last_small_llm_key_index
             try:
-                if DEBUG:
-                    print("🔥 SMALL LLM CALL ATTEMPT (summarize)")
-                    print("Provider:", provider)
-                    print("Model:", model)
-                    print("Using API Key index:", key_index)
                 if provider == "groq" and api_key and not api_key.startswith("gsk_"):
-                    print("⚠️ Invalid Groq key format")
                     self.logger.warning(f"small_llm_autofix skip_invalid_key task=summarize provider=groq key_index={key_index}")
                     continue
                 self.logger.info(f"small_llm_attempt task=summarize provider={provider} model={model} key_index={key_index}")
@@ -97,7 +88,6 @@ class SummarizerService:
                     raise RuntimeError(f"Unsupported provider: {provider}")
                 return out if out else (previous_summary or "").strip()
             except Exception as e:
-                print("❌ SMALL LLM ERROR (summarize):", str(e))
                 self.logger.error(f"small_llm_failure task=summarize provider={provider} model={model} key_index={key_index} err={e}")
                 model_manager.invalidate(provider, "small", model)
                 continue

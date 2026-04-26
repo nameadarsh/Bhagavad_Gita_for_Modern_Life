@@ -20,6 +20,7 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     verse_id: Optional[str] = None
     voice_output: Optional[bool] = False
+    language: str = "en"
 
 
 class ChatResponse(BaseModel):
@@ -34,4 +35,9 @@ class ChapterInfo(BaseModel):
     verse_count: int
     speakers: List[str]
     themes_top: List[str]
+
+
+class TTSRequest(BaseModel):
+    text: str
+    language: str = "en"
 

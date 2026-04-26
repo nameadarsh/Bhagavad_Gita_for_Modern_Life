@@ -6,9 +6,8 @@ import numpy as np
 import faiss
 import re
 import logging
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 
-DEBUG = False
 _EMBEDDER = None
 
 
@@ -17,10 +16,10 @@ def get_embedder():
     if _EMBEDDER is None:
         try:
             # Lazy load the small model only when first needed
-            _EMBEDDER = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+            # Using all-MiniLM-L6-v2 which matches the current index dimension (384)
+            _EMBEDDER = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
         except Exception as e:
             # Log but don't crash; retrieval will fail gracefully
-            import logging
             logging.getLogger("analytics").error(f"failed_to_load_embedder: {e}")
             return None
     return _EMBEDDER
@@ -51,10 +50,14 @@ class RagService:
             return None
 
         # e5 models: prefix query with "query: "
-        vec = embedder.encode([f"query: {query}"], convert_to_numpy=True)
-        vec = vec.astype("float32")
-        faiss.normalize_L2(vec)
-        return vec[0]
+        # fastembed.embed returns a generator
+        embeddings = list(embedder.embed([f"query: {query}"]))
+        if not embeddings:
+            return None
+        
+        vec = embeddings[0].astype("float32")
+        faiss.normalize_L2(np.expand_dims(vec, axis=0))
+        return vec
 
     def search_index(self, vector: np.ndarray, top_k: int = 1) -> List[Tuple[int, float]]:
         xq = np.expand_dims(vector.astype("float32"), axis=0)
@@ -221,10 +224,9 @@ class RagService:
             verse_type = self._classify_verse_type(verse)
             
             # Final score: combine keyword/theme overlap with semantic similarity
-            # FAISS score is L2 distance squared (lower = better, range 0-2 for normalized)
-            # We convert it to similarity: similarity = 1 - (distance_squared / 2)
-            # This ensures similarity is 1.0 for perfect match and 0.0 for orthogonal
-            semantic_similarity = max(0.0, 1.0 - (float(score) / 2.0))
+            # Since the index uses IndexFlatIP (Inner Product) and vectors are normalized,
+            # the FAISS score is already the Cosine Similarity (range -1 to 1, usually 0 to 1).
+            semantic_similarity = max(0.0, float(score))
             
             semantic_weight = 4.0  # Increase weight of semantic match
             final_score = (float(overlap) * 1.5) + (float(theme_overlap) * 2.0) + (semantic_similarity * semantic_weight)
@@ -283,15 +285,6 @@ class RagService:
         best = candidates[0]
         
         analytics.info(f"retrieval_success best_verse={best['verse_id']} score={best['final_score']:.2f} intent={user_intent}")
-        
-        if DEBUG:
-            print(f"🎯 User Intent: {user_intent} | Mapped Themes: {intent_themes}")
-            print("🔎 Reranked candidates:")
-            for c in candidates[:5]:
-                print(
-                    f" - verse={c['verse_id']} type={c['verse_type']} overlap={c['overlap']} "
-                    f"theme_match={c['theme_overlap']} final={c['final_score']:.1f} faiss={c['faiss_score']:.4f}"
-                )
 
         return best["verse"], {
             "score": best["faiss_score"],

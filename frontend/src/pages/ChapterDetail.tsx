@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ChevronLeft, Loader2, Tag, Users, Info } from 'lucide-react';
-import { gitaApi } from '../services/api';
+import { dataService } from '../data/dataService';
 import type { ChapterDetail } from '../types';
 import ShlokCard from '../components/ShlokCard';
 
@@ -11,15 +11,19 @@ const ChapterDetailPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchChapter = async () => {
+  const loadChapter = () => {
     if (!id) return;
     setIsLoading(true);
     setError(null);
     try {
-      const result = await gitaApi.getChapter(parseInt(id));
-      setData(result);
+      const result = dataService.getChapterDetail(parseInt(id));
+      if (result) {
+        setData(result);
+      } else {
+        setError(`Chapter ${id} not found.`);
+      }
     } catch (err) {
-      console.error('Failed to fetch chapter details:', err);
+      console.error('Failed to load chapter details:', err);
       setError(`Unable to reveal the teachings of Chapter ${id}.`);
     } finally {
       setIsLoading(false);
@@ -27,7 +31,7 @@ const ChapterDetailPage = () => {
   };
 
   useEffect(() => {
-    fetchChapter();
+    loadChapter();
   }, [id]);
 
   if (isLoading) {
@@ -47,7 +51,7 @@ const ChapterDetailPage = () => {
         </div>
         <p className="text-slate-600 font-medium">{error}</p>
         <button
-          onClick={fetchChapter}
+          onClick={loadChapter}
           className="w-full px-6 py-3 bg-orange-600 text-white font-bold rounded-2xl hover:bg-orange-700 transition-colors shadow-lg shadow-orange-600/20"
         >
           Retry Connection
