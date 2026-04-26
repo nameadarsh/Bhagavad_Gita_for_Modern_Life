@@ -1,4 +1,4 @@
-import { User, Bot, ChevronDown, ChevronUp, Volume2, Loader2, VolumeX, AlertCircle } from 'lucide-react';
+import { User, Bot, ChevronDown, ChevronUp, Volume2, Loader2, VolumeX } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { chatApi } from '../services/api';
 import { useChatStore } from '../store/chatStore';
@@ -55,7 +55,6 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
           urls, 
           'chat', 
           () => setIsLocalLoading(false),
-          () => setIsLocalLoading(false),
           () => setIsLocalLoading(false)
         );
       } else {
@@ -107,7 +106,6 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
         message.id,
         [audioUrl],
         type,
-        () => setIsLocalLoading(false),
         () => setIsLocalLoading(false),
         () => setIsLocalLoading(false)
       );

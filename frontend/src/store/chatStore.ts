@@ -83,7 +83,7 @@ export const useChatStore = create<ChatState>()(
         });
       },
 
-      playAudio: async (id, urls, type, onStart, onEnd, onError) => {
+      playAudio: async (id, urls, type, onStart, onEnd) => {
         const { stopAudio, playingMessageId, playingAudioType } = get();
 
         // Toggle logic: if same audio is playing, stop and return

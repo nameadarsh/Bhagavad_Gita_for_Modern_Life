@@ -9,7 +9,7 @@ import type { Verse } from '../types';
 
 const Chat = () => {
   const location = useLocation();
-  const { messages, sessionId, language, setLanguage, setSessionId, addMessage, updateLastMessage, clearHistory } = useChatStore();
+  const { messages, sessionId, language, setLanguage, setSessionId, addMessage, clearHistory } = useChatStore();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [contextVerse, setContextVerse] = useState<Verse | null>(null);

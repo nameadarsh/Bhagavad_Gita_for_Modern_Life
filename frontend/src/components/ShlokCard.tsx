@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, ChevronUp, MessageCircle, Volume2, VolumeX, AlertCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, MessageCircle, Volume2, VolumeX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
 import type { Verse } from '../types';
@@ -70,7 +70,6 @@ const ShlokCard = ({ verse, defaultExpanded = false }: ShlokCardProps) => {
         verse.id,
         [audioUrl],
         type,
-        () => setIsLocalLoading(false),
         () => setIsLocalLoading(false),
         () => setIsLocalLoading(false)
       );
