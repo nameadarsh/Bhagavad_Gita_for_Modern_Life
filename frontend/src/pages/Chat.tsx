@@ -1,19 +1,22 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Send, Trash2, Sparkles, Info, X, ChevronDown } from 'lucide-react';
+import { Send, Trash2, Info, X, ChevronDown } from 'lucide-react';
 import { chatApi } from '../services/api';
 import { dataService } from '../data/dataService';
 import { useChatStore } from '../store/chatStore';
+import { useBackendStore } from '../store/backendStore';
 import ChatMessage from '../components/ChatMessage';
 import type { Verse } from '../types';
 
 const Chat = () => {
   const location = useLocation();
   const { messages, sessionId, language, setLanguage, setSessionId, addMessage, clearHistory } = useChatStore();
+  const { isBackendReady, isWarmingUp, warmupTimedOut, restartWarmup } = useBackendStore();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [contextVerse, setContextVerse] = useState<Verse | null>(null);
-  const [showContext, setShowContext] = useState(true);
+  const [dismissedContextVerseId, setDismissedContextVerseId] = useState<string | null>(null);
+  const [pendingQueuedQuery, setPendingQueuedQuery] = useState<string | null>(null);
+  const [showReadyNotice, setShowReadyNotice] = useState(false);
   const [showLangDropdown, setShowLangDropdown] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -32,10 +35,26 @@ const Chat = () => {
   ];
 
   const currentLang = languages.find(l => l.code === language) || languages[0];
+  const locationVerseId = location.state?.verseId as string | undefined;
+  const contextVerse = useMemo<Verse | null>(() => {
+    if (!locationVerseId || dismissedContextVerseId === locationVerseId) {
+      return null;
+    }
+
+    try {
+      return dataService.getVerseById(locationVerseId);
+    } catch (err) {
+      console.error('Failed to load context verse:', err);
+      return null;
+    }
+  }, [dismissedContextVerseId, locationVerseId]);
 
   const hasSentInitialQuery = useRef(false);
+  const previousReadyRef = useRef(isBackendReady);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeStreamIdRef = useRef<string | null>(null);
+  const queuedQueryRef = useRef<{ query: string; verseId?: string } | null>(null);
+  const isSendDisabled = isLoading || warmupTimedOut;
 
   // Initialize: Clear stale history if no active session is continued
   useEffect(() => {
@@ -46,40 +65,21 @@ const Chat = () => {
     }
   }, []);
 
-  // Handle incoming navigation state (e.g. from "Ask this shlok")
-  useEffect(() => {
-    const handleInitialState = async () => {
-      if (location.state?.verseId && !hasSentInitialQuery.current) {
-        hasSentInitialQuery.current = true;
-        try {
-          const v = dataService.getVerseById(location.state.verseId);
-          if (v) {
-            setContextVerse(v);
-            setShowContext(true);
-            
-            if (location.state?.initialQuery) {
-              handleSend(location.state.initialQuery, location.state.verseId);
-            }
-          }
-        } catch (err) {
-          console.error('Failed to load context verse:', err);
-        }
-        // Clear state so it doesn't trigger again on refresh
-        window.history.replaceState({}, document.title);
-      }
-    };
-    handleInitialState();
-  }, [location.state]);
-
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isLoading]);
 
-  const handleSend = async (queryText: string = input, verseId?: string) => {
+  const handleSend = useCallback(async (queryText: string = input, verseId?: string) => {
     const trimmedQuery = queryText.trim();
     if (!trimmedQuery || isLoading) return;
+
+    if (!isBackendReady) {
+      queuedQueryRef.current = { query: trimmedQuery, verseId };
+      setPendingQueuedQuery(trimmedQuery);
+      return;
+    }
 
     // 1. Generate unique stream ID for this request
     const streamId = Math.random().toString(36).substring(7);
@@ -92,6 +92,8 @@ const Chat = () => {
     abortControllerRef.current = new AbortController();
 
     setInput('');
+    setPendingQueuedQuery(null);
+    queuedQueryRef.current = null;
     addMessage({ role: 'user', content: trimmedQuery });
     setIsLoading(true);
 
@@ -105,7 +107,7 @@ const Chat = () => {
       const response = await chatApi.streamQuery(
         trimmedQuery, 
         sessionId || undefined, 
-        verseId || (showContext ? contextVerse?.id : undefined),
+        verseId || contextVerse?.id,
         language,
         abortControllerRef.current.signal
       );
@@ -173,15 +175,17 @@ const Chat = () => {
           boundary = buffer.indexOf('\n\n');
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Only handle error if this is still the active stream
       if (activeStreamIdRef.current === streamId) {
-        if (error.name === 'AbortError') {
+        if (error instanceof Error && error.name === 'AbortError') {
           return;
         }
         
         console.error('Chat error details:', error);
-        const errorMessage = error?.message || 'I apologize, but I am having trouble connecting to the sacred teachings right now. Please try again in a moment.';
+        const errorMessage = error instanceof Error
+          ? error.message
+          : 'I apologize, but I am having trouble connecting to the sacred teachings right now. Please try again in a moment.';
         
         useChatStore.getState().updateMessage(aiMessageId, { content: errorMessage });
       }
@@ -191,22 +195,91 @@ const Chat = () => {
         abortControllerRef.current = null;
       }
     }
+  }, [addMessage, contextVerse?.id, input, isBackendReady, isLoading, language, sessionId, setSessionId]);
+
+  // Handle incoming navigation state (e.g. from "Ask this shlok")
+  useEffect(() => {
+    if (!locationVerseId || !location.state?.initialQuery || !isBackendReady || hasSentInitialQuery.current) {
+      return;
+    }
+
+    hasSentInitialQuery.current = true;
+    void handleSend(location.state.initialQuery, locationVerseId);
+    window.history.replaceState({}, document.title);
+  }, [handleSend, isBackendReady, location.state, locationVerseId]);
+
+  useEffect(() => {
+    if (!isBackendReady || isLoading || !queuedQueryRef.current) {
+      return;
+    }
+
+    const queued = queuedQueryRef.current;
+    void handleSend(queued.query, queued.verseId);
+  }, [handleSend, isBackendReady, isLoading]);
+
+  useEffect(() => {
+    if (!previousReadyRef.current && isBackendReady) {
+      setShowReadyNotice(true);
+      const timeoutId = window.setTimeout(() => {
+        setShowReadyNotice(false);
+      }, 3000);
+
+      previousReadyRef.current = isBackendReady;
+      return () => window.clearTimeout(timeoutId);
+    }
+
+    previousReadyRef.current = isBackendReady;
+  }, [isBackendReady]);
+
+  const handleRetryWarmup = () => {
+    restartWarmup();
   };
 
+  const showEmptyState = messages.length === 0 && !isLoading;
+
+  const renderInputForm = (isCentered = false) => (
+    <div className={`relative group ${isCentered ? 'w-full max-w-2xl mt-6' : 'flex-shrink-0'}`}>
+      <div className="absolute -inset-1 bg-gradient-to-r from-orange-400 to-amber-500 rounded-2xl blur opacity-10 group-focus-within:opacity-30 transition duration-500"></div>
+      <form 
+        onSubmit={(e) => { e.preventDefault(); handleSend(); }}
+        className="relative flex items-center bg-white rounded-xl border border-orange-100 shadow-sm focus-within:border-orange-300 transition-colors"
+      >
+        <input
+          type="text"
+          value={input}
+          disabled={isLoading}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={showEmptyState ? "Ask anything about your situation..." : !isBackendReady ? "Type now, your message will send when ready..." : isLoading ? "Thinking..." : "Type your question here..."}
+          className="flex-1 py-4 px-6 focus:outline-none text-slate-800 placeholder:text-slate-400 bg-transparent disabled:opacity-50"
+        />
+        <button
+          type="submit"
+          disabled={!input.trim() || isSendDisabled}
+          className={`p-3 mr-2 rounded-lg transition-all active:scale-95 ${
+            !input.trim() || isSendDisabled 
+              ? 'text-slate-300' 
+              : 'text-white bg-orange-600 hover:bg-orange-700 shadow-sm'
+          }`}
+        >
+          <Send size={20} />
+        </button>
+      </form>
+    </div>
+  );
+
   return (
-    <div className="flex flex-col h-[calc(100vh-10rem)] md:h-[calc(100vh-8rem)]">
+    <div className="flex flex-col h-[calc(100vh-11rem)] md:h-[70vh]">
       <div className="flex justify-between items-center mb-4 flex-shrink-0">
-        <h1 className="text-xl md:text-2xl font-bold text-slate-800 flex items-center gap-2">
-          <Sparkles className="text-orange-500" size={24} />
-          <span>Guide</span>
+        <h1 className="text-base md:text-lg font-semibold text-slate-500 text-center">
+          Ask what truly weighs on your mind.
         </h1>
         <div className="flex items-center gap-4">
           <div className="relative">
             <button
               onClick={() => setShowLangDropdown(!showLangDropdown)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 text-[11px] font-bold text-slate-700 rounded-xl hover:border-orange-200 transition-all shadow-sm"
+              className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 text-xs font-semibold text-slate-700 rounded-xl hover:border-orange-200 transition-all shadow-sm"
             >
-              <span>{currentLang.label}</span>
+              <span>{`Chat in: ${currentLang.label}`}</span>
               <ChevronDown size={14} className={`transition-transform duration-300 ${showLangDropdown ? 'rotate-180' : ''}`} />
             </button>
             
@@ -242,7 +315,7 @@ const Chat = () => {
           {messages.length > 0 && (
             <button 
               onClick={clearHistory}
-              className="flex items-center space-x-1 text-xs font-medium text-slate-400 hover:text-red-500 transition-colors"
+              className="flex items-center space-x-1 text-xs font-semibold text-slate-700 hover:text-orange-500 transition-colors underline underline-offset-2"
             >
               <Trash2 size={14} />
               <span>Clear</span>
@@ -251,7 +324,7 @@ const Chat = () => {
         </div>
       </div>
 
-      {contextVerse && showContext && (
+      {contextVerse && (
         <div className="mb-4 p-3 bg-orange-50 border border-orange-100 rounded-xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2 flex-shrink-0 relative">
           <div className="p-2 bg-orange-100 text-orange-600 rounded-lg">
             <Info size={18} />
@@ -265,7 +338,7 @@ const Chat = () => {
             </p>
           </div>
           <button 
-            onClick={() => setShowContext(false)}
+            onClick={() => setDismissedContextVerseId(contextVerse.id)}
             className="text-orange-300 hover:text-orange-500 transition-colors"
           >
             <X size={16} />
@@ -273,114 +346,74 @@ const Chat = () => {
         </div>
       )}
 
-      <div 
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto pr-2 mb-4 space-y-2 scroll-smooth min-h-0"
-      >
-        {messages.length === 0 ? (
-          <div className="min-h-full flex flex-col items-center justify-center text-center p-8 space-y-4">
-            <div className="w-16 h-16 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center text-3xl shadow-inner">
-              🕉️
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-slate-800">Welcome to Gita RAG</h2>
-              <p className="text-slate-500 max-w-sm mt-2">
-                Ask any question about life, duty, or spirituality, and receive guidance from the Bhagavad Gita.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-lg mt-4">
-              {[
-                "How can I find peace in difficult times?",
-                "What is the importance of duty?",
-                "How to handle fear and anxiety?",
-                "Explain the path of devotion."
-              ].map((q) => (
-                <button
-                  key={q}
-                  onClick={() => handleSend(q)}
-                  className="p-3 text-sm text-left border border-orange-100 bg-white rounded-xl hover:bg-orange-50 hover:border-orange-200 hover:shadow-md transition-all text-slate-700 shadow-sm"
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          messages.map((msg) => (
-            <ChatMessage key={msg.id} message={msg} />
-          ))
-        )}
-        {isLoading && (
-          <div className="flex justify-start mb-6 animate-in fade-in duration-300">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-sm">
-                <Bot size={18} className="animate-pulse" />
-              </div>
-              <div className="bg-white border border-orange-100 p-4 rounded-2xl rounded-tl-none shadow-sm flex items-center space-x-2">
-                <div className="flex space-x-1">
-                  <div className="w-1.5 h-1.5 bg-orange-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                  <div className="w-1.5 h-1.5 bg-orange-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                  <div className="w-1.5 h-1.5 bg-orange-400 rounded-full animate-bounce"></div>
-                </div>
-                <span className="text-sm text-slate-500 italic">Thinking...</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      {showReadyNotice && (
+        <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-sm font-medium text-emerald-700 shadow-sm flex-shrink-0">
+          Chat is ready
+        </div>
+      )}
 
-      <div className="relative group flex-shrink-0">
-        <div className="absolute -inset-1 bg-gradient-to-r from-orange-400 to-amber-500 rounded-2xl blur opacity-10 group-focus-within:opacity-30 transition duration-500"></div>
-        <form 
-          onSubmit={(e) => { e.preventDefault(); handleSend(); }}
-          className="relative flex items-center bg-white rounded-xl border border-orange-100 shadow-sm focus-within:border-orange-300 transition-colors"
-        >
-          <input
-            type="text"
-            value={input}
-            disabled={isLoading}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={isLoading ? "Thinking..." : "Type your question here..."}
-            className="flex-1 py-4 px-6 focus:outline-none text-slate-800 placeholder:text-slate-400 bg-transparent disabled:opacity-50"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || isLoading}
-            className={`p-3 mr-2 rounded-lg transition-all ${
-              !input.trim() || isLoading 
-                ? 'text-slate-300' 
-                : 'text-white bg-orange-600 hover:bg-orange-700 shadow-sm active:scale-95'
-            }`}
+      {!isBackendReady && (
+        <div className="mb-4 p-4 bg-white border border-orange-100 rounded-2xl shadow-sm flex-shrink-0 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <div>
+              {warmupTimedOut ? (
+                <>
+                  <h2 className="text-sm font-semibold text-slate-800">Server is taking longer than expected</h2>
+                  <p className="text-sm text-slate-500 mt-1">Please try again.</p>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-sm font-semibold text-slate-800">Preparing guidance... this may take a moment.</h2>
+                </>
+              )}
+              {pendingQueuedQuery && (
+                <p className="text-sm text-orange-600 mt-2">Your message is queued and will send automatically once ready.</p>
+              )}
+            </div>
+            {warmupTimedOut ? (
+              <button
+                type="button"
+                onClick={handleRetryWarmup}
+                className="px-4 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700 transition-colors shadow-sm"
+              >
+                Retry
+              </button>
+            ) : (
+              <div className="flex space-x-1">
+                <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce"></div>
+              </div>
+            )}
+          </div>
+          {!warmupTimedOut && (
+            <div className="h-2 w-full bg-orange-100 rounded-full overflow-hidden">
+              <div className={`h-full w-1/3 bg-orange-500 rounded-full ${isWarmingUp ? 'animate-pulse' : ''}`}></div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showEmptyState ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
+          <p className="text-gray-500 text-lg font-medium">Ask what truly weighs on your mind.</p>
+          {renderInputForm(true)}
+        </div>
+      ) : (
+        <>
+          <div 
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto pr-2 mb-4 space-y-2 scroll-smooth min-h-0"
           >
-            <Send size={20} />
-          </button>
-        </form>
-      </div>
+            {messages.map((msg) => (
+              <ChatMessage key={msg.id} message={msg} />
+            ))}
+          </div>
+          {renderInputForm(false)}
+        </>
+      )}
     </div>
   );
 };
-
-// Internal Helper
-const Bot = ({ size, className }: { size: number, className?: string }) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    width={size} 
-    height={size} 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
-    className={className}
-  >
-    <path d="M12 8V4H8" />
-    <rect width="16" height="12" x="4" y="8" rx="2" />
-    <path d="M2 14h2" />
-    <path d="M20 14h2" />
-    <path d="M15 13v2" />
-    <path d="M9 13v2" />
-  </svg>
-);
 
 export default Chat;

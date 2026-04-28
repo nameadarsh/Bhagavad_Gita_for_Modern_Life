@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from app.services.api_key_manager import ApiKeyManager
 from app.services.prompt_loader import load_prompt
@@ -27,6 +27,7 @@ class QueryService:
         
         if not q:
             return {
+                "type": "gita_query",
                 "clean_query": "",
                 "intent": "knowledge",
                 "desired_outcome": "wisdom",
@@ -99,9 +100,16 @@ class QueryService:
                     json_str = match.group(0) if match else out
                     data = json.loads(json_str)
                     
-                    # Validate fields
-                    if not data.get("intent") or not data.get("desired_outcome"):
-                        raise ValueError("Missing fields in LLM response")
+                    query_type = data.get("type")
+                    if query_type not in {"greeting", "meta", "gita_query"}:
+                        raise ValueError("Missing or invalid type in LLM response")
+
+                    if query_type == "gita_query":
+                        if not data.get("intent") or not data.get("desired_outcome"):
+                            raise ValueError("Missing fields in LLM response")
+                    else:
+                        if not data.get("response"):
+                            raise ValueError("Missing response for non-gita query")
                     
                     return data
                 except (json.JSONDecodeError, ValueError) as e:
@@ -137,6 +145,26 @@ class QueryService:
         """
         q = query.lower()
 
+        if q in {"hi", "hello", "hey", "namaste", "good morning", "good evening"}:
+            return {
+                "type": "greeting",
+                "response": "Hello! I'm here to help you explore wisdom from the Bhagavad Gita.",
+                "clean_query": None,
+                "intent": None,
+                "desired_outcome": None,
+                "themes": []
+            }
+
+        if any(phrase in q for phrase in ["who are you", "what are you", "tell me about yourself", "what do you do", "about yourself"]):
+            return {
+                "type": "meta",
+                "response": "I'm an AI system that connects your situation with teachings from the Bhagavad Gita and explains them in a practical way.",
+                "clean_query": None,
+                "intent": None,
+                "desired_outcome": None,
+                "themes": []
+            }
+
         # Simple Intent Mapping per requirements
         if any(w in q for w in ["sad", "depressed", "unhappy", "sorrow", "grief", "pain", "crying", "lost", "broken"]):
             desired_outcome = "uplifting guidance"
@@ -170,6 +198,7 @@ class QueryService:
         clean_query = " ".join(words) if words else query
 
         return {
+            "type": "gita_query",
             "clean_query": clean_query,
             "intent": intent,
             "desired_outcome": desired_outcome,

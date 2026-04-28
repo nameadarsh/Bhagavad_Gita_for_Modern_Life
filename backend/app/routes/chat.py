@@ -23,6 +23,34 @@ async def chat(req: ChatRequest, request: Request):
     session_id = req.session_id or str(uuid.uuid4())
     query = req.query.strip()
 
+    # refine query and analyze intent/outcome/themes
+    analysis = state.query_service.refine(query)
+    query_type = analysis.get("type", "gita_query")
+
+    if query_type != "gita_query":
+        direct_response = analysis.get("response", "").strip() or "Hello! I'm here to help you explore wisdom from the Bhagavad Gita."
+        clean_meta = {
+            "query_type": query_type,
+            "chapter_summary": None,
+            "summary": "",
+            "fallback": False,
+            "audio": {
+                "shlok": None,
+                "translation": None,
+                "explanation": None
+            }
+        }
+
+        async def direct_event_generator():
+            yield f"data: {json.dumps({'type': 'start', 'session_id': session_id, 'verse': None, 'meta': clean_meta}, ensure_ascii=False)}\n\n"
+            chunk_size = 40
+            for i in range(0, len(direct_response), chunk_size):
+                chunk = direct_response[i:i+chunk_size]
+                yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'end'}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(direct_event_generator(), media_type="text/event-stream")
+
     # check if RAG is available
     if not getattr(state, "rag_available", False):
         raise HTTPException(
@@ -33,8 +61,6 @@ async def chat(req: ChatRequest, request: Request):
     # session store
     session = state.sessions.setdefault(session_id, {"history": [], "summary": ""})
 
-    # refine query and analyze intent/outcome/themes
-    analysis = state.query_service.refine(query)
     refined_query = analysis.get("clean_query", query)
     user_intent = analysis.get("intent", "knowledge")
     desired_outcome = analysis.get("desired_outcome", "wisdom")
@@ -115,6 +141,7 @@ async def chat(req: ChatRequest, request: Request):
         )
 
     clean_meta = {
+        "query_type": query_type,
         "verse_id": retrieval_meta.get("verse_id"),
         "chapter_summary": chapter_summary,
         "summary": session.get("summary", ""),

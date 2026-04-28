@@ -1,47 +1,37 @@
-# Bhagavad Gita for Modern Life - Frontend
+# Frontend
 
-A modern, responsive React application providing an intuitive interface for interacting with the **Bhagavad Gita for Modern Life** AI.
+The frontend is a React + Vite application that handles routing, warmup UX, chat streaming, and audio playback.
 
 ## Setup
+```bash
+npm install
+npm run dev
+```
 
-1. **Install Dependencies**
-   ```bash
-   npm install
-   ```
+Create `frontend/.env`:
 
-2. **Environment Variables**
-   Create a `.env` file in the `frontend/` directory:
-   ```env
-   VITE_API_BASE_URL=http://localhost:8000
-   ```
+```env
+VITE_API_BASE_URL=http://localhost:8000
+```
 
-3. **Run Development Server**
-   ```bash
-   npm run dev
-   ```
+## Pages
+- `/`: Home landing page
+- `/chat`: main chat experience
+- `/info`: system explanation and feedback placeholder
+- `/daily`, `/chapters`, `/chapter/:id`, `/shloks`: static exploration pages
 
-## Stopping the App
-Press `Ctrl + C` in the terminal to stop the Vite development server.
+## Warmup UX
+- App load immediately calls backend `/health_check`
+- Chat shows a loading state until the backend is ready
+- Warmup retries every 10 seconds, times out after 90 seconds, and can be restarted with a retry button
+- Queued chat input is preserved and auto-sent once readiness is reached
+- A temporary "Chat is ready" notice appears when warmup completes
 
-## Features
-
-- **AI Guide**: Real-time streaming conversational interface with context-aware guidance.
-- **Multilingual Support**: Supports 11 Indian languages for both text and audio guidance.
-- **Audio System**: High-quality TTS for AI responses and pre-recorded static audio for shloks.
-- **Chapter Explorer**: Browse all 18 chapters with themes, speakers, and verse-by-verse breakdowns.
-- **Ask about this**: Instantly bridge the gap between ancient verses and modern queries.
-
-## Tech Stack
-
-- **React + Vite**: Fast, modern frontend framework.
-- **TypeScript**: Type-safe development for complex state and API flows.
-- **Zustand**: Persistent state management for chat history and audio control.
-- **Tailwind CSS**: Beautiful, responsive UI with a spiritual aesthetic.
-- **Lucide React**: Clean and intuitive iconography.
+## Audio System
+- AI response audio is generated through `/api/v1/tts`
+- Verse cards and referenced verses can play static audio from Supabase
+- Global audio playback is coordinated through the persisted chat store
 
 ## State Management
-
-We use **Zustand** with persistence to manage:
-- **Chat History**: Messages are saved locally to maintain continuity across sessions.
-- **Global Audio**: A centralized controller for seamless playback, preloading, and queuing of audio chunks.
-- **User Preferences**: Language selection and session management.
+- `chatStore`: session id, messages, language, and global audio state
+- `backendStore`: readiness, timeout, retry, and warmup lifecycle state

@@ -1,14 +1,16 @@
 import { Link, useLocation } from 'react-router-dom';
-import { MessageSquare, Calendar, BookOpen, List } from 'lucide-react';
+import { House, MessageSquare, Info, Calendar, BookOpen, List } from 'lucide-react';
 
 const Navbar = () => {
   const location = useLocation();
 
   const navItems = [
-    { path: '/', label: 'Chat', icon: MessageSquare },
+    { path: '/', label: 'Home', icon: House },
+    { path: '/chat', label: 'Chat', icon: MessageSquare },
     { path: '/daily', label: 'Daily', icon: Calendar },
     { path: '/chapters', label: 'Chapters', icon: BookOpen },
     { path: '/shloks', label: 'All Shloks', icon: List },
+    { path: '/info', label: 'Info', icon: Info },
   ];
 
   return (

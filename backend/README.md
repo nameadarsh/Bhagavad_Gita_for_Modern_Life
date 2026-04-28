@@ -1,54 +1,46 @@
-# Bhagavad Gita for Modern Life - Backend
+# Backend
 
-The backend is a FastAPI-powered service that handles the RAG (Retrieval-Augmented Generation) pipeline, intent classification, and vector search.
+The backend is a FastAPI service that powers retrieval, grounded response generation, TTS generation, and the warmup readiness flow.
 
 ## Setup
+```bash
+python3 -m venv ../venv
+source ../venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
 
-1. **Create Virtual Environment**
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-
-2. **Install Dependencies**
-   ```bash
-   # Installs optimized CPU-only torch to minimize RAM and disk usage
-   pip install -r requirements.txt
-   ```
-
-3. **Run the Server**
-   ```bash
-   uvicorn app.main:app --host 0.0.0.0 --port 8000
-   ```
-
-## Stopping the Server
-Press `Ctrl + C` in the terminal where the server is running.
-
-## Environment Variables
-Create a `.env` file in the `backend/` directory with the following variables:
+## Environment
+Create `backend/.env` with:
 
 ```env
-LLM_PROVIDER=groq  # or openai
-LLM_API_KEYS=your_key_1,your_key_2
+LLM_PROVIDER=groq
 SMALL_LLM_PROVIDER=groq
-SMALL_LLM_API_KEYS=your_key_small
-SARVAM_API_KEY=your_sarvam_key_for_tts
+LLM_API_KEYS=your_llm_keys
+SMALL_LLM_API_KEYS=your_small_llm_keys
+SARVAM_API_KEY=your_sarvam_key
 SUPABASE_URL=your_supabase_url
 SUPABASE_SERVICE_KEY=your_supabase_service_key
 SUPABASE_BUCKET=rag_gita_audio
+FRONTEND_URL=http://localhost:5173
 ```
 
-## API Endpoints (Prefix: /api/v1)
+## RAG Flow
+1. `/health_check` loads the FAISS index, prompts, metadata, chapters, and embedding model once.
+2. `/api/v1/chat` refines the query, retrieves the most relevant verse, reranks candidates, and generates a grounded answer.
+3. The answer is returned as an SSE stream with verse metadata and audio metadata.
 
-- `POST /chat`: Main streaming endpoint for the AI Guide.
-  - Body: `{ "query": "string", "session_id": "optional_string", "verse_id": "optional_id", "language": "en" }`
-- `POST /tts`: Generate deterministic audio chunks for dynamic LLM content.
-  - Body: `{ "text": "string", "language": "en" }`
-- `GET /health`: Returns RAG readiness and model status.
+## TTS Pipeline
+- `/api/v1/tts` chunks generated text into speech-friendly segments
+- Sarvam produces MP3 audio
+- Supabase stores and serves cached audio URLs
+- Static verse audio URLs are generated deterministically from Supabase storage paths
 
-## RAG Pipeline
+## Supabase Storage
+- Dynamic TTS bucket: `SUPABASE_BUCKET` (default `rag_gita_audio`)
+- Static verse bucket: `rag_gita_static_audio`
 
-1. **Query Refinement**: Intent analysis (e.g., `confusion`, `duty`) to prioritize appropriate guidance.
-2. **FAISS Retrieval**: Semantic search for the top relevant verses from the Bhagavad Gita.
-3. **LLM Synthesis**: Grounded response generation using provider-aware model discovery and API key cycling.
-4. **TTS Generation**: Audio chunking via Sarvam AI with caching in Supabase for high-quality guidance.
+## Health Endpoints
+- `GET /health_check`: warmup entrypoint used by the frontend; loads RAG plus embeddings and reports `rag_available`
+- `GET /health`: detailed readiness and embedder status
+- `GET /`: basic service metadata

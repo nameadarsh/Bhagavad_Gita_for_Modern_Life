@@ -89,4 +89,14 @@ export const dataService = {
     const index = Math.abs(hash) % verses.length;
     return verses[index];
   },
+  getAnotherDailyShlok: (currentVerseId?: string | null) => {
+    if (verses.length === 0) return null;
+    if (verses.length === 1) return verses[0];
+
+    let nextVerse = verses[Math.floor(Math.random() * verses.length)];
+    while (nextVerse.id === currentVerseId) {
+      nextVerse = verses[Math.floor(Math.random() * verses.length)];
+    }
+    return nextVerse;
+  },
 };

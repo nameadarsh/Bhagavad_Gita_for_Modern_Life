@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { ChevronDown, ChevronUp, MessageCircle, Volume2, VolumeX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
+import { STATIC_AUDIO_BASE_URL } from '../services/api';
 import type { Verse } from '../types';
 
 interface ShlokCardProps {
@@ -51,17 +52,16 @@ const ShlokCard = ({ verse, defaultExpanded = false }: ShlokCardProps) => {
     }
 
     // Deterministic static URL based on chapter and verse
-    const staticBaseUrl = "https://fshfxtshvffidmuevofm.supabase.co/storage/v1/object/public/shlok_audio";
     const key = `${verse.chapter}_${verse.verse}`;
     
     // Map internal type to Supabase folder
     const folderMap = {
       'shlok': 'shlok',
-      'translation': 'translation',
+      'translation': 'shlok_english_translation',
       'explanation': 'explanation'
     };
     
-    const audioUrl = `${staticBaseUrl}/${folderMap[type]}/${key}.mp3`;
+    const audioUrl = `${STATIC_AUDIO_BASE_URL}/${folderMap[type]}/${key}.mp3`;
 
     setIsLocalLoading(true);
 
@@ -80,7 +80,7 @@ const ShlokCard = ({ verse, defaultExpanded = false }: ShlokCardProps) => {
   };
 
   const handleAsk = () => {
-    navigate('/', { state: { verseId: verse.id, initialQuery: `Explain Chapter ${verse.chapter}, Verse ${verse.verse}` } });
+    navigate('/chat', { state: { verseId: verse.id, initialQuery: `Explain Chapter ${verse.chapter}, Verse ${verse.verse}` } });
   };
 
   return (

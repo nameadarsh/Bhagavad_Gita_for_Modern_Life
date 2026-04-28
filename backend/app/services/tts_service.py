@@ -30,7 +30,21 @@ class TtsService:
         
         # Phase 7: Static Audio Mapping
         self.static_bucket = "rag_gita_static_audio"
-        self.static_base_url = f"{self.supabase_url}/storage/v1/object/public/{self.static_bucket}"
+        self.static_base_url = (
+            f"{self.supabase_url}/storage/v1/object/public/{self.static_bucket}"
+            if self.supabase_url else ""
+        )
+
+    def _build_sarvam_payload(self, text: str, target_language_code: str) -> dict:
+        return {
+            "text": text,
+            "target_language_code": target_language_code,
+            "speaker": "shubh",
+            "model": "bulbul:v3",
+            "pace": 0.9,
+            "speech_sample_rate": 24000,
+            "output_audio_codec": "mp3",
+        }
         
     def get_static_audio_urls(self, chapter: int, verse: int, language: str) -> dict:
         """
@@ -40,9 +54,9 @@ class TtsService:
         key = f"{chapter}_{verse}"
         
         return {
-            "shlok": f"{self.static_base_url}/shlok/{key}.mp3",
-            "translation": f"{self.static_base_url}/shlok_english_translation/{key}.mp3",
-            "explanation": f"{self.static_base_url}/explanation/{key}.mp3"
+            "shlok": f"{self.static_base_url}/shlok/{key}.mp3" if self.static_base_url else None,
+            "translation": f"{self.static_base_url}/shlok_english_translation/{key}.mp3" if self.static_base_url else None,
+            "explanation": f"{self.static_base_url}/explanation/{key}.mp3" if self.static_base_url else None,
         }
 
     def _clean_text(self, text: str) -> str:
@@ -103,9 +117,6 @@ class TtsService:
             tts_blocks.append(block)
         
         full_tts_text = " ".join(tts_blocks)
-        
-        # Log cleaned text for debugging
-        logger.info(f"[TTS] Cleaned text for TTS: {full_tts_text[:100]}...")
         
         if not full_tts_text.strip():
             logger.warning("[TTS] No text remaining after cleaning")
@@ -174,12 +185,7 @@ class TtsService:
         try:
             async with httpx.AsyncClient() as client:
                 payload = {
-                    "text": clean_text,
-                    "target_language_code": lang_code,
-                    "speaker": "shubh",
-                    "model": "bulbul:v3",
-                    "output_audio_codec": "mp3",
-                    "pace": 0.88 # Calm, slower pace (0.85-0.9)
+                    **self._build_sarvam_payload(clean_text, lang_code)
                 }
                 headers = {
                     "api-subscription-key": self.sarvam_api_key,
@@ -259,12 +265,7 @@ class TtsService:
             async with httpx.AsyncClient() as client:
                 # 3.6 SARVAM TTS CALL (CRITICAL)
                 payload = {
-                    "text": clean_text,
-                    "target_language_code": lang_code,
-                    "speaker": "shubh",
-                    "model": "bulbul:v3",
-                    "output_audio_codec": "mp3",
-                    "pace": 1.1
+                    **self._build_sarvam_payload(clean_text, lang_code)
                 }
                 headers = {
                     "api-subscription-key": self.sarvam_api_key,

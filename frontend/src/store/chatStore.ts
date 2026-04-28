@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ChatMessage } from '../types';
 
+const AUDIO_START_BUFFER_MS = 1000;
+
 interface ChatState {
   sessionId: string | null;
   messages: ChatMessage[];
@@ -102,6 +104,23 @@ export const useChatStore = create<ChatState>()(
 
         set({ audioQueue: urls, currentChunkIndex: 0 });
 
+        const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+        const waitForCanPlayThrough = (audio: HTMLAudioElement) =>
+          new Promise<void>((resolve, reject) => {
+            const cleanup = () => {
+              audio.oncanplaythrough = null;
+              audio.onerror = null;
+            };
+            audio.oncanplaythrough = () => {
+              cleanup();
+              resolve();
+            };
+            audio.onerror = () => {
+              cleanup();
+              reject(new Error('Audio failed to load'));
+            };
+          });
+
         const playChunk = async (index: number) => {
           if (index >= urls.length) {
             set({ playingMessageId: null, playingAudioType: null });
@@ -138,6 +157,12 @@ export const useChatStore = create<ChatState>()(
 
           set({ globalAudio: audio });
           try {
+            audio.volume = 1.0;
+            audio.load();
+            await waitForCanPlayThrough(audio);
+            if (index === 0) {
+              await wait(AUDIO_START_BUFFER_MS);
+            }
             await audio.play();
           } catch (e) {
             console.error("Playback failed:", e);

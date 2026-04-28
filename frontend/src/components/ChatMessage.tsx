@@ -1,7 +1,8 @@
-import { User, Bot, ChevronDown, ChevronUp, Volume2, Loader2, VolumeX } from 'lucide-react';
+import { User, ChevronDown, ChevronUp, Volume2, Loader2, VolumeX } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
-import { chatApi } from '../services/api';
+import { chatApi, STATIC_AUDIO_BASE_URL } from '../services/api';
 import { useChatStore } from '../store/chatStore';
+import { useBackendStore } from '../store/backendStore';
 import type { ChatMessage as ChatMessageType } from '../types';
 
 interface ChatMessageProps {
@@ -10,6 +11,7 @@ interface ChatMessageProps {
 
 const ChatMessage = ({ message }: ChatMessageProps) => {
   const isAi = message.role === 'ai';
+  const isBackendReady = useBackendStore((state) => state.isBackendReady);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLocalLoading, setIsLocalLoading] = useState(false);
   const [placeholderType, setPlaceholderType] = useState<string | null>(null);
@@ -36,6 +38,10 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
   const isExplanationPlaying = playingMessageId === message.id && playingAudioType === 'explanation';
 
   const handlePlayAudio = async () => {
+    if (!isBackendReady) {
+      return;
+    }
+
     if (isPlaying) {
       stopAudio();
       return;
@@ -85,14 +91,13 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
     // Use deterministic URL if verse info is available
     let audioUrl = message.meta?.audio?.[type];
     if (!audioUrl && message.verse) {
-      const staticBaseUrl = "https://fshfxtshvffidmuevofm.supabase.co/storage/v1/object/public/shlok_audio";
       const key = `${message.verse.chapter}_${message.verse.verse}`;
       const folderMap = {
         'shlok': 'shlok',
-        'translation': 'translation',
+        'translation': 'shlok_english_translation',
         'explanation': 'explanation'
       };
-      audioUrl = `${staticBaseUrl}/${folderMap[type]}/${key}.mp3`;
+      audioUrl = `${STATIC_AUDIO_BASE_URL}/${folderMap[type]}/${key}.mp3`;
     }
 
     if (!audioUrl) {
@@ -145,14 +150,15 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
 
   const paragraphs = formatContent(message.content);
   const isFallback = isAi && message.meta?.fallback === true;
+  const isPendingAiMessage = isAi && message.content.trim().length === 0;
 
   return (
     <div className={`flex w-full mb-6 ${isAi ? 'justify-start' : 'justify-end'} animate-in fade-in slide-in-from-bottom-2 duration-500`}>
       <div className={`flex max-w-[90%] md:max-w-[80%] ${isAi ? 'flex-row' : 'flex-row-reverse'}`}>
         <div className={`flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-2xl shadow-sm transition-all duration-300 hover:scale-110 ${
-          isAi ? 'bg-orange-600 text-white mr-3' : 'bg-white border border-slate-200 text-slate-500 ml-3'
+          isAi ? 'bg-slate-200 text-slate-500 mr-3' : 'bg-white border border-slate-200 text-slate-500 ml-3'
         }`}>
-          {isAi ? <Bot size={20} /> : <User size={20} />}
+          {isAi ? <span className="w-2.5 h-2.5 rounded-full bg-slate-400" /> : <User size={20} />}
         </div>
 
         <div className="space-y-3 flex-1 min-w-0">
@@ -161,19 +167,28 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
               ? 'bg-white border-orange-100 text-slate-800 rounded-tl-none' 
               : 'bg-orange-600 border-orange-700 text-white rounded-tr-none'
           }`}>
-            <div className="text-sm md:text-[15px] leading-relaxed font-medium space-y-4">
-              {paragraphs.map((paragraph, i) => (
-                <p key={i} className="animate-in fade-in duration-500 fill-mode-both" style={{ animationDelay: `${i * 100}ms` }}>
-                  {paragraph}
-                </p>
-              ))}
-            </div>
+            {isPendingAiMessage ? (
+              <div className="flex items-center space-x-2 py-1">
+                <div className="w-1.5 h-1.5 bg-orange-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                <div className="w-1.5 h-1.5 bg-orange-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                <div className="w-1.5 h-1.5 bg-orange-400 rounded-full animate-bounce"></div>
+                <span className="text-sm text-slate-500 italic">Thinking...</span>
+              </div>
+            ) : (
+              <div className="text-sm md:text-[15px] leading-relaxed font-medium space-y-4">
+                {paragraphs.map((paragraph, i) => (
+                  <p key={i} className="animate-in fade-in duration-200 ease-out fill-mode-both" style={{ animationDelay: `${i * 100}ms` }}>
+                    {paragraph}
+                  </p>
+                ))}
+              </div>
+            )}
             
             {isAi && message.content && (
               <div className="mt-4 flex items-center justify-between border-t border-orange-50 pt-3">
                 <button
                   onClick={handlePlayAudio}
-                  disabled={isLocalLoading}
+                  disabled={isLocalLoading || !isBackendReady}
                   className="inline-flex items-center gap-[6px] text-[14px] font-medium text-[#f97316] hover:text-orange-700 transition-colors disabled:opacity-50 bg-none border-none p-0 cursor-pointer"
                 >
                   {isLocalLoading ? (

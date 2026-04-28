@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import logging
 import os
+from threading import Lock
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
@@ -13,6 +14,7 @@ from app.logger import setup_app_loggers
 from app.services.api_key_manager import ApiKeyManager
 from app.services.data_loader import load_all
 from app.services.rag_service import RagService
+from app.services.rag_service import get_embedder
 from app.services.llm_service import LlmService
 from app.services.query_service import QueryService
 from app.services.summarizer_service import SummarizerService
@@ -59,10 +61,6 @@ def create_app() -> FastAPI:
             "version": "1.0.0"
         }
 
-    @app.get("/health_check")
-    def health_check():
-        return JSONResponse({"status": "ok", "service": "gita-rag-backend"})
-
     @app.get("/health")
     def health():
         rag_ready = getattr(app.state, "rag_available", False)
@@ -91,34 +89,53 @@ def create_app() -> FastAPI:
     app.state.conversations_logger = logging.getLogger("conversations")
     app.state.analytics_logger = logging.getLogger("analytics")
     app.state.rag_available = False
+    app.state.rag_loading = False
+    app.state.rag_lock = Lock()
 
     def load_rag_system():
-        try:
-            # load all cached resources once
-            loaded = load_all(base_dir)
-            app.state.verses = loaded.verses
-            app.state.verses_by_id = loaded.verses_by_id
-            app.state.chapters = loaded.chapters
-            app.state.metadata = loaded.metadata
-            app.state.faiss_index = loaded.faiss_index
-            app.state.prompts = loaded.prompts
+        if getattr(app.state, "rag_available", False):
+            return True
 
-            # services
-            keys = ApiKeyManager()
-            app.state.api_keys = keys
-            app.state.rag_service = RagService(
-                verses_by_id=loaded.verses_by_id,
-                metadata=loaded.metadata,
-                faiss_index=loaded.faiss_index,
-            )
-            app.state.query_service = QueryService(prompts=loaded.prompts, keys=keys)
-            app.state.summarizer_service = SummarizerService(prompts=loaded.prompts, keys=keys)
-            app.state.llm_service = LlmService(prompts=loaded.prompts, keys=keys)
-            app.state.tts_service = TtsService()
-            app.state.rag_available = True
-        except Exception as e:
-            app.state.analytics_logger.error(f"rag_load_error: {e}")
-            app.state.rag_available = False
+        with app.state.rag_lock:
+            if getattr(app.state, "rag_available", False):
+                return True
+
+            app.state.rag_loading = True
+            try:
+                # load all cached resources once
+                loaded = load_all(base_dir)
+                app.state.verses = loaded.verses
+                app.state.verses_by_id = loaded.verses_by_id
+                app.state.chapters = loaded.chapters
+                app.state.metadata = loaded.metadata
+                app.state.faiss_index = loaded.faiss_index
+                app.state.prompts = loaded.prompts
+
+                # Preload embedder during warmup so first retrieval is ready.
+                embedder = get_embedder()
+                if embedder is None:
+                    raise RuntimeError("Failed to initialize embedding model")
+
+                # services
+                keys = ApiKeyManager()
+                app.state.api_keys = keys
+                app.state.rag_service = RagService(
+                    verses_by_id=loaded.verses_by_id,
+                    metadata=loaded.metadata,
+                    faiss_index=loaded.faiss_index,
+                )
+                app.state.query_service = QueryService(prompts=loaded.prompts, keys=keys)
+                app.state.summarizer_service = SummarizerService(prompts=loaded.prompts, keys=keys)
+                app.state.llm_service = LlmService(prompts=loaded.prompts, keys=keys)
+                app.state.tts_service = TtsService()
+                app.state.rag_available = True
+                return True
+            except Exception as e:
+                app.state.analytics_logger.error(f"rag_load_error: {e}")
+                app.state.rag_available = False
+                return False
+            finally:
+                app.state.rag_loading = False
 
     @app.middleware("http")
     async def ensure_rag_loaded(request: Request, call_next):
@@ -132,6 +149,20 @@ def create_app() -> FastAPI:
             # Try to load if not already loaded (first request to heavy endpoint)
             load_rag_system()
         return await call_next(request)
+
+    @app.get("/health_check")
+    def health_check():
+        rag_ready = getattr(app.state, "rag_available", False)
+        if not rag_ready:
+            rag_ready = load_rag_system()
+
+        return JSONResponse(
+            {
+                "status": "ok" if rag_ready else "warming",
+                "service": "gita-rag-backend",
+                "rag_available": rag_ready,
+            }
+        )
 
     # sessions (in-memory)
     app.state.sessions = {}
