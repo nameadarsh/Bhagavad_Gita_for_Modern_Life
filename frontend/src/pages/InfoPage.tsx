@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, Star, Globe, FileText, Send, User, BookOpen, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ChevronDown, Star, Globe, FileText, Send, User, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { chatApi } from '../services/api';
 
 // ─── Accordion Tile ───────────────────────────────────────────────────────────

@@ -4,7 +4,6 @@ import { Send, Trash2, Info, X, ChevronDown, MessageSquare } from 'lucide-react'
 import { chatApi } from '../services/api';
 import { dataService } from '../data/dataService';
 import { useChatStore } from '../store/chatStore';
-import { useBackendStore } from '../store/backendStore';
 import ChatMessage from '../components/ChatMessage';
 import type { Verse } from '../types';
 
