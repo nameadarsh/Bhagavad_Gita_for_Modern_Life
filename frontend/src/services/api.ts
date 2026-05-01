@@ -1,7 +1,6 @@
 import axios from 'axios';
 
-const rawBaseUrl = import.meta.env.VITE_API_URL;
-console.log("VITE_API_URL from env:", import.meta.env.VITE_API_URL);
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL;
 
 // Remove trailing slash to avoid //chat urls
 export const API_BASE_URL = (rawBaseUrl || '').endsWith('/') ? rawBaseUrl.slice(0, -1) : (rawBaseUrl || '');
@@ -9,10 +8,8 @@ export const API_BASE_URL = (rawBaseUrl || '').endsWith('/') ? rawBaseUrl.slice(
 // Add API prefix if needed (e.g., /api/v1)
 export const API_URL = `${API_BASE_URL}/api/v1`;
 
-console.log("API URL:", API_URL);
-
 if (!rawBaseUrl) {
-  console.error('CRITICAL: VITE_API_URL is not defined in the environment variables. Backend communication will fail.');
+  console.error('CRITICAL: VITE_API_BASE_URL is not defined in the environment variables. Backend communication will fail.');
 }
 export const STATIC_AUDIO_BASE_URL = 'https://fshfxtshvffidmuevofm.supabase.co/storage/v1/object/public/rag_gita_static_audio';
 
