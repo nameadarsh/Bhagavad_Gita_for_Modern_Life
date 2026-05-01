@@ -1,11 +1,19 @@
 import axios from 'axios';
 
-const rawBaseUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const rawBaseUrl = import.meta.env.VITE_API_URL;
+console.log("VITE_API_URL from env:", import.meta.env.VITE_API_URL);
+
 // Remove trailing slash to avoid //chat urls
-export const API_BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
+export const API_BASE_URL = (rawBaseUrl || '').endsWith('/') ? rawBaseUrl.slice(0, -1) : (rawBaseUrl || '');
 
 // Add API prefix if needed (e.g., /api/v1)
 export const API_URL = `${API_BASE_URL}/api/v1`;
+
+console.log("API URL:", API_URL);
+
+if (!rawBaseUrl) {
+  console.error('CRITICAL: VITE_API_URL is not defined in the environment variables. Backend communication will fail.');
+}
 export const STATIC_AUDIO_BASE_URL = 'https://fshfxtshvffidmuevofm.supabase.co/storage/v1/object/public/rag_gita_static_audio';
 
 const api = axios.create({
@@ -37,51 +45,104 @@ api.interceptors.response.use(
 
 export const chatApi = {
   sendQuery: async (query: string, sessionId?: string, verseId?: string) => {
-    const response = await api.post('/chat', {
-      query,
-      session_id: sessionId,
-      verse_id: verseId,
-    });
-    return response.data;
+    try {
+      const response = await api.post('/chat', {
+        query,
+        session_id: sessionId,
+        verse_id: verseId,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('API sendQuery error:', error);
+      throw error;
+    }
   },
   streamQuery: async (query: string, sessionId?: string, verseId?: string, language: string = 'en', signal?: AbortSignal) => {
-    return fetch(`${API_URL}/chat`, {
+    const fetchWithTimeout = async (resource: string, options: any) => {
+      const { timeout = 8000 } = options;
+      
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), timeout);
+      
+      const combinedSignal = signal 
+        ? (signal.addEventListener('abort', () => controller.abort()), controller.signal)
+        : controller.signal;
+
+      try {
+        const fullUrl = resource.startsWith('http') ? resource : `${window.location.origin}${resource}`;
+        console.log("Fetching from:", fullUrl);
+        console.log("Sending payload:", { query, session_id: sessionId, verse_id: verseId, language });
+        
+        const response = await fetch(resource, {
+          ...options,
+          signal: combinedSignal,
+        });
+        clearTimeout(id);
+        
+        if (!response.ok) {
+          const text = await response.text();
+          console.error("HTTP ERROR:", response.status, text);
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        return response;
+      } catch (err) {
+        console.error("FETCH FAILED:", err);
+        throw err;
+      }
+    };
+
+    return fetchWithTimeout(`${API_URL}/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      signal,
       body: JSON.stringify({
         query,
         session_id: sessionId,
         verse_id: verseId,
         language,
       }),
+      timeout: 6000, // 6 seconds timeout for stream initiation
     });
   },
   generateTts: async (text: string, language: string = 'en') => {
-    const response = await api.post('/tts', {
-      text,
-      language,
-    });
-    return response.data;
-  },
-};
-
-export const backendApi = {
-  warmup: async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/health_check`, {
-        method: 'GET',
+      const response = await api.post('/tts', {
+        text,
+        language,
       });
-      if (!response.ok) {
-        return false;
+      return response.data;
+    } catch (error) {
+      console.error('API generateTts error:', error);
+      throw error;
+    }
+  },
+  submitFeedback: async (rating: number, name?: string, feedback?: string) => {
+    try {
+      if (feedback && feedback.length > 500) {
+        throw new Error('Feedback is too long (max 500 characters)');
       }
 
-      const data = await response.json();
-      return Boolean(data?.rag_available);
-    } catch {
-      return false;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout
+
+      const response = await api.post('/feedback', {
+        rating,
+        name: name?.trim() || undefined,
+        feedback: feedback?.trim() || undefined,
+      }, {
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      return response.data;
+    } catch (error: any) {
+      console.error('API submitFeedback error:', error);
+      if (error.name === 'AbortError') {
+        throw new Error('Connection timed out. Please try again.');
+      }
+      throw error;
     }
   },
 };

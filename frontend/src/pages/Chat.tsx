@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Send, Trash2, Info, X, ChevronDown } from 'lucide-react';
+import { Send, Trash2, Info, X, ChevronDown, MessageSquare } from 'lucide-react';
 import { chatApi } from '../services/api';
 import { dataService } from '../data/dataService';
 import { useChatStore } from '../store/chatStore';
@@ -11,12 +11,9 @@ import type { Verse } from '../types';
 const Chat = () => {
   const location = useLocation();
   const { messages, sessionId, language, setLanguage, setSessionId, addMessage, clearHistory } = useChatStore();
-  const { isBackendReady, isWarmingUp, warmupTimedOut, restartWarmup } = useBackendStore();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [dismissedContextVerseId, setDismissedContextVerseId] = useState<string | null>(null);
-  const [pendingQueuedQuery, setPendingQueuedQuery] = useState<string | null>(null);
-  const [showReadyNotice, setShowReadyNotice] = useState(false);
   const [showLangDropdown, setShowLangDropdown] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -50,11 +47,10 @@ const Chat = () => {
   }, [dismissedContextVerseId, locationVerseId]);
 
   const hasSentInitialQuery = useRef(false);
-  const previousReadyRef = useRef(isBackendReady);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeStreamIdRef = useRef<string | null>(null);
   const queuedQueryRef = useRef<{ query: string; verseId?: string } | null>(null);
-  const isSendDisabled = isLoading || warmupTimedOut;
+  const isSendDisabled = isLoading;
 
   // Initialize: Clear stale history if no active session is continued
   useEffect(() => {
@@ -75,12 +71,6 @@ const Chat = () => {
     const trimmedQuery = queryText.trim();
     if (!trimmedQuery || isLoading) return;
 
-    if (!isBackendReady) {
-      queuedQueryRef.current = { query: trimmedQuery, verseId };
-      setPendingQueuedQuery(trimmedQuery);
-      return;
-    }
-
     // 1. Generate unique stream ID for this request
     const streamId = Math.random().toString(36).substring(7);
     activeStreamIdRef.current = streamId;
@@ -92,7 +82,6 @@ const Chat = () => {
     abortControllerRef.current = new AbortController();
 
     setInput('');
-    setPendingQueuedQuery(null);
     queuedQueryRef.current = null;
     addMessage({ role: 'user', content: trimmedQuery });
     setIsLoading(true);
@@ -195,50 +184,22 @@ const Chat = () => {
         abortControllerRef.current = null;
       }
     }
-  }, [addMessage, contextVerse?.id, input, isBackendReady, isLoading, language, sessionId, setSessionId]);
+  }, [addMessage, contextVerse?.id, input, isLoading, language, sessionId, setSessionId]);
 
   // Handle incoming navigation state (e.g. from "Ask this shlok")
   useEffect(() => {
-    if (!locationVerseId || !location.state?.initialQuery || !isBackendReady || hasSentInitialQuery.current) {
+    if (!locationVerseId || !location.state?.initialQuery || hasSentInitialQuery.current) {
       return;
     }
 
     hasSentInitialQuery.current = true;
-    void handleSend(location.state.initialQuery, locationVerseId);
-    window.history.replaceState({}, document.title);
-  }, [handleSend, isBackendReady, location.state, locationVerseId]);
+    handleSend(location.state.initialQuery, locationVerseId);
+  }, [location.state?.initialQuery, locationVerseId, handleSend]);
 
-  useEffect(() => {
-    if (!isBackendReady || isLoading || !queuedQueryRef.current) {
-      return;
-    }
+  const showEmptyState = messages.length === 0;
 
-    const queued = queuedQueryRef.current;
-    void handleSend(queued.query, queued.verseId);
-  }, [handleSend, isBackendReady, isLoading]);
-
-  useEffect(() => {
-    if (!previousReadyRef.current && isBackendReady) {
-      setShowReadyNotice(true);
-      const timeoutId = window.setTimeout(() => {
-        setShowReadyNotice(false);
-      }, 3000);
-
-      previousReadyRef.current = isBackendReady;
-      return () => window.clearTimeout(timeoutId);
-    }
-
-    previousReadyRef.current = isBackendReady;
-  }, [isBackendReady]);
-
-  const handleRetryWarmup = () => {
-    restartWarmup();
-  };
-
-  const showEmptyState = messages.length === 0 && !isLoading;
-
-  const renderInputForm = (isCentered = false) => (
-    <div className={`relative group ${isCentered ? 'w-full max-w-2xl mt-6' : 'flex-shrink-0'}`}>
+  const renderInputForm = (isHero: boolean) => (
+    <div className={`w-full max-w-2xl mx-auto relative group ${isHero ? 'mt-8' : ''}`}>
       <div className="absolute -inset-1 bg-gradient-to-r from-orange-400 to-amber-500 rounded-2xl blur opacity-10 group-focus-within:opacity-30 transition duration-500"></div>
       <form 
         onSubmit={(e) => { e.preventDefault(); handleSend(); }}
@@ -249,7 +210,7 @@ const Chat = () => {
           value={input}
           disabled={isLoading}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={showEmptyState ? "Ask anything about your situation..." : !isBackendReady ? "Type now, your message will send when ready..." : isLoading ? "Thinking..." : "Type your question here..."}
+          placeholder={showEmptyState ? "Ask anything about your situation..." : isLoading ? "Thinking..." : "Type your question here..."}
           className="flex-1 py-4 px-6 focus:outline-none text-slate-800 placeholder:text-slate-400 bg-transparent disabled:opacity-50"
         />
         <button
@@ -268,8 +229,8 @@ const Chat = () => {
   );
 
   return (
-    <div className="flex flex-col h-[calc(100vh-11rem)] md:h-[70vh]">
-      <div className="flex justify-between items-center mb-4 flex-shrink-0">
+    <div className="flex flex-col h-[calc(100vh-14rem)] md:h-[75vh]">
+      <div className="flex justify-between items-center mb-6 flex-shrink-0">
         <h1 className="text-base md:text-lg font-semibold text-slate-500 text-center">
           Ask what truly weighs on your mind.
         </h1>
@@ -325,7 +286,7 @@ const Chat = () => {
       </div>
 
       {contextVerse && (
-        <div className="mb-4 p-3 bg-orange-50 border border-orange-100 rounded-xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2 flex-shrink-0 relative">
+        <div className="mb-6 p-3 bg-orange-50 border border-orange-100 rounded-xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2 flex-shrink-0 relative">
           <div className="p-2 bg-orange-100 text-orange-600 rounded-lg">
             <Info size={18} />
           </div>
@@ -346,71 +307,28 @@ const Chat = () => {
         </div>
       )}
 
-      {showReadyNotice && (
-        <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-sm font-medium text-emerald-700 shadow-sm flex-shrink-0">
-          Chat is ready
-        </div>
-      )}
-
-      {!isBackendReady && (
-        <div className="mb-4 p-4 bg-white border border-orange-100 rounded-2xl shadow-sm flex-shrink-0 animate-in fade-in duration-200">
-          <div className="flex items-center justify-between gap-4 mb-3">
-            <div>
-              {warmupTimedOut ? (
-                <>
-                  <h2 className="text-sm font-semibold text-slate-800">Server is taking longer than expected</h2>
-                  <p className="text-sm text-slate-500 mt-1">Please try again.</p>
-                </>
-              ) : (
-                <>
-                  <h2 className="text-sm font-semibold text-slate-800">Preparing guidance... this may take a moment.</h2>
-                </>
-              )}
-              {pendingQueuedQuery && (
-                <p className="text-sm text-orange-600 mt-2">Your message is queued and will send automatically once ready.</p>
-              )}
-            </div>
-            {warmupTimedOut ? (
-              <button
-                type="button"
-                onClick={handleRetryWarmup}
-                className="px-4 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700 transition-colors shadow-sm"
-              >
-                Retry
-              </button>
-            ) : (
-              <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce"></div>
-              </div>
-            )}
-          </div>
-          {!warmupTimedOut && (
-            <div className="h-2 w-full bg-orange-100 rounded-full overflow-hidden">
-              <div className={`h-full w-1/3 bg-orange-500 rounded-full ${isWarmingUp ? 'animate-pulse' : ''}`}></div>
-            </div>
-          )}
-        </div>
-      )}
-
       {showEmptyState ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
-          <p className="text-gray-500 text-lg font-medium">Ask what truly weighs on your mind.</p>
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-4 space-y-8">
+          <div className="bg-indigo-50 p-6 rounded-full">
+            <MessageSquare size={48} className="text-indigo-600" />
+          </div>
+          <p className="text-slate-500 text-xl font-medium max-w-sm mx-auto leading-relaxed">
+            What is currently on your mind? Share your situation and receive guidance.
+          </p>
           {renderInputForm(true)}
         </div>
       ) : (
-        <>
+        <div className="flex-1 flex flex-col min-h-0">
           <div 
             ref={scrollRef}
-            className="flex-1 overflow-y-auto pr-2 mb-4 space-y-2 scroll-smooth min-h-0"
+            className="flex-1 overflow-y-auto pr-2 mb-6 space-y-4 scroll-smooth"
           >
             {messages.map((msg) => (
               <ChatMessage key={msg.id} message={msg} />
             ))}
           </div>
           {renderInputForm(false)}
-        </>
+        </div>
       )}
     </div>
   );

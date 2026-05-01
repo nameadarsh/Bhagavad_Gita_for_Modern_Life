@@ -19,7 +19,9 @@ from app.services.llm_service import LlmService
 from app.services.query_service import QueryService
 from app.services.summarizer_service import SummarizerService
 from app.services.tts_service import TtsService
+from app.services.feedback_service import FeedbackService
 from app.routes.chat import router as chat_router
+from app.models.schemas import FeedbackRequest
 # verses, chapters, daily routers removed as they are now handled by frontend static data
 
 def create_app() -> FastAPI:
@@ -63,23 +65,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health():
-        rag_ready = getattr(app.state, "rag_available", False)
-        # Check if heavy embedder is actually loaded
-        try:
-            from app.services.rag_service import _EMBEDDER
-            embedder_loaded = _EMBEDDER is not None
-        except ImportError:
-            embedder_loaded = False
-            
-        return JSONResponse(
-            {
-                "status": "ok",
-                "rag_available": rag_ready,
-                "embedder_loaded": embedder_loaded,
-                "verses": len(getattr(app.state, "verses", []) or []) if rag_ready else 0,
-                "chapters": len(getattr(app.state, "chapters", {}) or {}) if rag_ready else 0,
-            }
-        )
+        return {"status": "ok"}
 
     @app.get("/favicon.ico")
     def favicon():
@@ -91,6 +77,9 @@ def create_app() -> FastAPI:
     app.state.rag_available = False
     app.state.rag_loading = False
     app.state.rag_lock = Lock()
+    
+    # initialize feedback service
+    app.state.feedback_service = FeedbackService()
 
     def load_rag_system():
         if getattr(app.state, "rag_available", False):
@@ -166,6 +155,20 @@ def create_app() -> FastAPI:
 
     # sessions (in-memory)
     app.state.sessions = {}
+
+    @app.post("/api/v1/feedback")
+    async def feedback(req: FeedbackRequest, request: Request):
+        success, message = request.app.state.feedback_service.submit_feedback(
+            rating=req.rating,
+            name=req.name,
+            feedback=req.feedback
+        )
+        if not success:
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "message": message}
+            )
+        return {"success": True, "message": message}
 
     # include routers with prefix
     app.include_router(chat_router, prefix="/api/v1")

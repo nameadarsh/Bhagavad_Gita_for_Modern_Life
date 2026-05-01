@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { House, MessageSquare, Info, Calendar, BookOpen, List } from 'lucide-react';
+import { House, MessageSquare, Info, Calendar, BookOpen, List, Book } from 'lucide-react';
 
 const Navbar = () => {
   const location = useLocation();
@@ -19,9 +19,9 @@ const Navbar = () => {
         <div className="flex justify-between md:justify-start md:space-x-10 items-center h-16 md:h-20">
           <Link to="/" className="hidden md:flex items-center space-x-3 text-orange-600 font-extrabold text-2xl group transition-all">
             <div className="p-2 bg-orange-100 rounded-xl group-hover:rotate-12 transition-transform shadow-inner">
-              <span>🕉️</span>
+              <Book size={24} className="text-orange-600" />
             </div>
-            <span className="tracking-tight">Gita RAG</span>
+            <span className="tracking-tight text-slate-800">Clarity</span>
           </Link>
           
           <div className="flex justify-around w-full md:w-auto md:space-x-2">

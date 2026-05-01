@@ -41,3 +41,9 @@ class TTSRequest(BaseModel):
     text: str
     language: str = "en"
 
+
+class FeedbackRequest(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+    name: Optional[str] = None
+    feedback: Optional[str] = None
+
