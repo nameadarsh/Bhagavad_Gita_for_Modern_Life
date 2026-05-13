@@ -28,7 +28,7 @@ class TtsService:
                 logger.error(f"[TTS] Failed to initialize Supabase: {e}")
                 self.supabase = None
         
-        # Phase 7: Static Audio Mapping
+        # Static verse audio URL base (Supabase public bucket)
         self.static_bucket = "rag_gita_static_audio"
         self.static_base_url = (
             f"{self.supabase_url}/storage/v1/object/public/{self.static_bucket}"
@@ -153,7 +153,7 @@ class TtsService:
         if not clean_text:
             return None, False, "EMPTY_TEXT"
             
-        # Phase 11: Expanded Language Support
+        # Language code mapping for TTS
         # Map simple language codes to Sarvam target_language_code
         lang_map = {
             "en": "en-IN",

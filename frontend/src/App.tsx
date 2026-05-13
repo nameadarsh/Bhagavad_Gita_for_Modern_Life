@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { useBackendReadiness } from './hooks/useBackendReadiness';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import Chat from './pages/Chat';
@@ -10,6 +11,8 @@ import ChapterDetail from './pages/ChapterDetail';
 import AllShloks from './pages/AllShloks';
 
 function App() {
+  useBackendReadiness();
+
   useEffect(() => {
     document.title = "Clarity";
   }, []);

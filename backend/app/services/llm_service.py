@@ -23,7 +23,7 @@ class LlmService:
         invalidate_prompt_cache("chat_prompt.txt")
         template = load_prompt("chat_prompt.txt").strip()
         
-        # Phase 11: Expanded Language Mapping
+        # Display names for supported chat languages
         lang_map = {
             "en": "English",
             "hi": "Hindi",
@@ -262,7 +262,7 @@ class LlmService:
                     if not response_text:
                         raise ValueError("Empty response field")
 
-                    # Phase 8: Content Quality Refinement (Post-processing)
+                    # Post-process: spacing, light dedup, paragraph heuristics
                     # 1. Normalize spacing and line breaks
                     response_text = re.sub(r'\n{3,}', '\n\n', response_text) # Max 2 newlines
                     response_text = re.sub(r' +', ' ', response_text) # No extra spaces
@@ -319,7 +319,7 @@ class LlmService:
             except Exception as e:
                 self.logger.error(f"llm_failure attempt={attempt} model={model} err={e}")
                 if attempt == max_attempts - 1:
-                    # Phase 9: Edge Case Handling - Clean Fallback Message
+                    # User-facing fallback when the model fails on the last attempt
                     fallback_msg = "I am unable to provide a detailed explanation at this moment. Please reflect on the wisdom of the verse provided above while I resolve this connection issue."
                     return {"answer": fallback_msg, "fallback": True}
                 continue

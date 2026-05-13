@@ -1,37 +1,43 @@
 # Frontend
 
-The frontend is a React + Vite application that handles routing, warmup UX, chat streaming, and audio playback.
+React + Vite + TypeScript SPA: static Gita browsing, streaming chat, feedback, and global audio playback. Branding in the UI is **Clarity**.
 
-## Setup
+## Run
+
 ```bash
 npm install
 npm run dev
 ```
 
-Create `frontend/.env`:
+## Environment
+
+`frontend/.env`:
 
 ```env
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
+Build-time: set `VITE_API_BASE_URL` to your production API origin before `npm run build`.
+
+## Readiness and warmup
+
+- **`useBackendReadiness`** (used from `App.tsx`) polls **`GET {VITE_API_BASE_URL}/health_check`** until `rag_available` is true.  
+- Polling is **sequential** (one request at a time): ~**4 s** between polls, **~120 s** total budget, **~130 s** per request timeout (cold `health_check` can take a long time while the server loads in a background thread).  
+- **`backendStore`** holds `isBackendReady`, warming/timeout flags, and `restartWarmup` for UI retries.  
+- **Retry:** the layout banner calls **`POST …/api/v1/warmup/retry`** then `restartWarmup()` so polling resumes after a backend `failed` state.
+
+Chat input stays disabled until the backend is ready (or the wait budget is exceeded).
+
+## Chat and API
+
+- Streaming chat uses **`fetch`** to `POST /api/v1/chat` with a **long** client-side timeout until headers (server completes retrieval + LLM before streaming). See `src/services/api.ts`.  
+- TTS and feedback use Axios (`/api/v1/tts`, `/api/v1/feedback`); feedback disables the global 5xx retry.
+
 ## Pages
-- `/`: Home landing page
-- `/chat`: main chat experience
-- `/info`: system explanation and feedback placeholder
-- `/daily`, `/chapters`, `/chapter/:id`, `/shloks`: static exploration pages
 
-## Warmup UX
-- App load immediately calls backend `/health_check`
-- Chat shows a loading state until the backend is ready
-- Warmup retries every 10 seconds, times out after 90 seconds, and can be restarted with a retry button
-- Queued chat input is preserved and auto-sent once readiness is reached
-- A temporary "Chat is ready" notice appears when warmup completes
+`/`, `/chat`, `/info`, `/daily`, `/chapters`, `/chapter/:id`, `/shloks`
 
-## Audio System
-- AI response audio is generated through `/api/v1/tts`
-- Verse cards and referenced verses can play static audio from Supabase
-- Global audio playback is coordinated through the persisted chat store
+## State
 
-## State Management
-- `chatStore`: session id, messages, language, and global audio state
-- `backendStore`: readiness, timeout, retry, and warmup lifecycle state
+- **`chatStore`** (persisted): session id, messages, language, global audio.  
+- **`backendStore`**: readiness and warmup UI state.

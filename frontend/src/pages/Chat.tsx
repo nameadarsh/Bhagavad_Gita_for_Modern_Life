@@ -4,6 +4,7 @@ import { Send, Trash2, Info, X, ChevronDown, MessageSquare } from 'lucide-react'
 import { chatApi } from '../services/api';
 import { dataService } from '../data/dataService';
 import { useChatStore } from '../store/chatStore';
+import { useBackendStore } from '../store/backendStore';
 import ChatMessage from '../components/ChatMessage';
 import type { Verse } from '../types';
 
@@ -48,8 +49,9 @@ const Chat = () => {
   const hasSentInitialQuery = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeStreamIdRef = useRef<string | null>(null);
-  const queuedQueryRef = useRef<{ query: string; verseId?: string } | null>(null);
-  const isSendDisabled = isLoading;
+  const isBackendReady = useBackendStore((s) => s.isBackendReady);
+  const warmupTimedOut = useBackendStore((s) => s.warmupTimedOut);
+  const isSendDisabled = isLoading || !isBackendReady;
 
   // Initialize: Clear stale history if no active session is continued
   useEffect(() => {
@@ -68,7 +70,7 @@ const Chat = () => {
 
   const handleSend = useCallback(async (queryText: string = input, verseId?: string) => {
     const trimmedQuery = queryText.trim();
-    if (!trimmedQuery || isLoading) return;
+    if (!trimmedQuery || isLoading || !isBackendReady) return;
 
     // 1. Generate unique stream ID for this request
     const streamId = Math.random().toString(36).substring(7);
@@ -81,7 +83,6 @@ const Chat = () => {
     abortControllerRef.current = new AbortController();
 
     setInput('');
-    queuedQueryRef.current = null;
     addMessage({ role: 'user', content: trimmedQuery });
     setIsLoading(true);
 
@@ -183,17 +184,20 @@ const Chat = () => {
         abortControllerRef.current = null;
       }
     }
-  }, [addMessage, contextVerse?.id, input, isLoading, language, sessionId, setSessionId]);
+  }, [addMessage, contextVerse?.id, input, isLoading, isBackendReady, language, sessionId, setSessionId]);
 
-  // Handle incoming navigation state (e.g. from "Ask this shlok")
+  // Handle incoming navigation state (e.g. from "Ask this shlok") — only after backend readiness
   useEffect(() => {
     if (!locationVerseId || !location.state?.initialQuery || hasSentInitialQuery.current) {
       return;
     }
+    if (!isBackendReady) {
+      return;
+    }
 
     hasSentInitialQuery.current = true;
-    handleSend(location.state.initialQuery, locationVerseId);
-  }, [location.state?.initialQuery, locationVerseId, handleSend]);
+    void handleSend(location.state.initialQuery, locationVerseId);
+  }, [location.state?.initialQuery, locationVerseId, isBackendReady, handleSend]);
 
   const showEmptyState = messages.length === 0;
 
@@ -207,9 +211,17 @@ const Chat = () => {
         <input
           type="text"
           value={input}
-          disabled={isLoading}
+          disabled={isLoading || !isBackendReady}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={showEmptyState ? "Ask anything about your situation..." : isLoading ? "Thinking..." : "Type your question here..."}
+          placeholder={
+            !isBackendReady
+              ? (warmupTimedOut ? 'Service unavailable — use banner to retry…' : 'Preparing guidance service…')
+              : showEmptyState
+                ? 'Ask anything about your situation…'
+                : isLoading
+                  ? 'Thinking…'
+                  : 'Type your question here…'
+          }
           className="flex-1 py-4 px-6 focus:outline-none text-slate-800 placeholder:text-slate-400 bg-transparent disabled:opacity-50"
         />
         <button

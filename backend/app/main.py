@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
+import asyncio
 import logging
 import os
+from contextlib import asynccontextmanager
+from pathlib import Path
 from threading import Lock
+from typing import AsyncIterator, Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
@@ -22,7 +25,54 @@ from app.services.tts_service import TtsService
 from app.services.feedback_service import FeedbackService
 from app.routes.chat import router as chat_router
 from app.models.schemas import FeedbackRequest
-# verses, chapters, daily routers removed as they are now handled by frontend static data
+
+
+def _sync_load_rag(app: FastAPI, base_dir: Path) -> bool:
+    """
+    CPU / blocking I/O: FAISS, JSON, embedder, service wiring.
+    Must run in a worker thread (asyncio.to_thread), never on the event loop.
+    """
+    if getattr(app.state, "rag_available", False):
+        return True
+
+    with app.state.rag_lock:
+        if getattr(app.state, "rag_available", False):
+            return True
+
+        app.state.rag_loading = True
+        try:
+            loaded = load_all(base_dir)
+            app.state.verses = loaded.verses
+            app.state.verses_by_id = loaded.verses_by_id
+            app.state.chapters = loaded.chapters
+            app.state.metadata = loaded.metadata
+            app.state.faiss_index = loaded.faiss_index
+            app.state.prompts = loaded.prompts
+
+            embedder = get_embedder()
+            if embedder is None:
+                raise RuntimeError("Failed to initialize embedding model")
+
+            keys = ApiKeyManager()
+            app.state.api_keys = keys
+            app.state.rag_service = RagService(
+                verses_by_id=loaded.verses_by_id,
+                metadata=loaded.metadata,
+                faiss_index=loaded.faiss_index,
+            )
+            app.state.query_service = QueryService(prompts=loaded.prompts, keys=keys)
+            app.state.summarizer_service = SummarizerService(prompts=loaded.prompts, keys=keys)
+            app.state.llm_service = LlmService(prompts=loaded.prompts, keys=keys)
+            app.state.tts_service = TtsService()
+            app.state.rag_available = True
+            return True
+        except Exception as e:
+            app.state.analytics_logger.error(f"rag_load_error: {e}")
+            app.state.rag_available = False
+            return False
+        finally:
+            app.state.rag_loading = False
+
 
 def create_app() -> FastAPI:
     load_dotenv()
@@ -37,7 +87,59 @@ def create_app() -> FastAPI:
     base_dir = Path(__file__).resolve().parents[1]  # backend/
     setup_app_loggers(base_dir)
 
-    app = FastAPI(title="Bhagavad Gita for Modern Life", version="1.0.0")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        app.state.warmup_schedule_lock = asyncio.Lock()
+        app.state.warmup_status = "starting"
+        app.state.warmup_error = None
+
+        async def warmup_worker() -> None:
+            try:
+                ok = await asyncio.to_thread(_sync_load_rag, app, base_dir)
+                async with app.state.warmup_schedule_lock:
+                    if ok:
+                        app.state.warmup_status = "ready"
+                        app.state.warmup_error = None
+                    else:
+                        app.state.warmup_status = "failed"
+                        app.state.warmup_error = "RAG or embedding initialization returned false"
+            except asyncio.CancelledError:
+                async with app.state.warmup_schedule_lock:
+                    if getattr(app.state, "warmup_status", "") != "ready":
+                        app.state.warmup_status = "starting"
+                raise
+            except Exception as e:
+                log = getattr(app.state, "analytics_logger", None) or logging.getLogger("analytics")
+                log.error(f"warmup_worker_error: {e}")
+                async with app.state.warmup_schedule_lock:
+                    app.state.warmup_status = "failed"
+                    app.state.warmup_error = str(e)[:500]
+
+        async def kick_warmup() -> None:
+            async with app.state.warmup_schedule_lock:
+                if getattr(app.state, "warmup_status", "") == "ready":
+                    return
+                t = getattr(app.state, "_warmup_task", None)
+                if t is not None and not t.done():
+                    return
+                app.state.warmup_status = "warming_up"
+                app.state.warmup_error = None
+                app.state._warmup_task = asyncio.create_task(warmup_worker())
+
+        app.state.warmup_kick = kick_warmup
+        await kick_warmup()
+
+        yield
+
+        t = getattr(app.state, "_warmup_task", None)
+        if t is not None and not t.done():
+            t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+
+    app = FastAPI(title="Bhagavad Gita for Modern Life", version="1.0.0", lifespan=lifespan)
 
     FRONTEND_URL = os.getenv("FRONTEND_URL")
     origins = [
@@ -60,119 +162,80 @@ def create_app() -> FastAPI:
         return {
             "status": "ok",
             "title": "Bhagavad Gita for Modern Life",
-            "version": "1.0.0"
+            "version": "1.0.0",
         }
-
-    @app.get("/health")
-    def health():
-        return {"status": "ok"}
 
     @app.get("/favicon.ico")
     def favicon():
         return Response(status_code=204)
 
-    # attach loggers
     app.state.conversations_logger = logging.getLogger("conversations")
     app.state.analytics_logger = logging.getLogger("analytics")
     app.state.rag_available = False
     app.state.rag_loading = False
     app.state.rag_lock = Lock()
-    
-    # initialize feedback service
     app.state.feedback_service = FeedbackService()
 
-    def load_rag_system():
-        if getattr(app.state, "rag_available", False):
-            return True
-
-        with app.state.rag_lock:
-            if getattr(app.state, "rag_available", False):
-                return True
-
-            app.state.rag_loading = True
-            try:
-                # load all cached resources once
-                loaded = load_all(base_dir)
-                app.state.verses = loaded.verses
-                app.state.verses_by_id = loaded.verses_by_id
-                app.state.chapters = loaded.chapters
-                app.state.metadata = loaded.metadata
-                app.state.faiss_index = loaded.faiss_index
-                app.state.prompts = loaded.prompts
-
-                # Preload embedder during warmup so first retrieval is ready.
-                embedder = get_embedder()
-                if embedder is None:
-                    raise RuntimeError("Failed to initialize embedding model")
-
-                # services
-                keys = ApiKeyManager()
-                app.state.api_keys = keys
-                app.state.rag_service = RagService(
-                    verses_by_id=loaded.verses_by_id,
-                    metadata=loaded.metadata,
-                    faiss_index=loaded.faiss_index,
-                )
-                app.state.query_service = QueryService(prompts=loaded.prompts, keys=keys)
-                app.state.summarizer_service = SummarizerService(prompts=loaded.prompts, keys=keys)
-                app.state.llm_service = LlmService(prompts=loaded.prompts, keys=keys)
-                app.state.tts_service = TtsService()
-                app.state.rag_available = True
-                return True
-            except Exception as e:
-                app.state.analytics_logger.error(f"rag_load_error: {e}")
-                app.state.rag_available = False
-                return False
-            finally:
-                app.state.rag_loading = False
-
-    @app.middleware("http")
-    async def ensure_rag_loaded(request: Request, call_next):
-        # List of prefixes or paths that require RAG system to be loaded
-        # Only /chat and /tts (via /api/v1 prefix) now need RAG
-        rag_dependent_prefixes = ["/api/v1/chat", "/api/v1/tts", "/chat"]
-        
-        should_load = any(request.url.path.startswith(prefix) for prefix in rag_dependent_prefixes)
-        
-        if should_load and not getattr(app.state, "rag_available", False):
-            # Try to load if not already loaded (first request to heavy endpoint)
-            load_rag_system()
-        return await call_next(request)
+    @app.get("/health")
+    def health():
+        """Liveness + observed readiness. Does not load models or RAG."""
+        ws = getattr(app.state, "warmup_status", "starting")
+        rag_ready = bool(getattr(app.state, "rag_available", False))
+        rag_loading = bool(getattr(app.state, "rag_loading", False))
+        return {
+            "status": "alive",
+            "warmup_status": ws,
+            "rag_available": rag_ready,
+            "rag_loading": rag_loading,
+        }
 
     @app.get("/health_check")
     def health_check():
-        rag_ready = getattr(app.state, "rag_available", False)
-        if not rag_ready:
-            rag_ready = load_rag_system()
+        """Readiness for clients; same fields as before plus explicit warmup_status."""
+        ws = getattr(app.state, "warmup_status", "starting")
+        rag_ready = bool(getattr(app.state, "rag_available", False))
+        rag_loading = bool(getattr(app.state, "rag_loading", False))
+        err = getattr(app.state, "warmup_error", None)
 
-        return JSONResponse(
-            {
-                "status": "ok" if rag_ready else "warming",
-                "service": "gita-rag-backend",
-                "rag_available": rag_ready,
-            }
-        )
+        compat_status = "ok" if rag_ready else ws
 
-    # sessions (in-memory)
+        body: dict[str, Any] = {
+            "status": compat_status,
+            "warmup_status": ws,
+            "service": "gita-rag-backend",
+            "rag_available": rag_ready,
+            "rag_loading": rag_loading,
+        }
+        if err and ws == "failed":
+            body["warmup_error"] = err
+        return JSONResponse(body)
+
     app.state.sessions = {}
+
+    @app.post("/api/v1/warmup/retry")
+    async def warmup_retry(request: Request):
+        """Re-run background warmup after a failure (explicit recovery, not middleware)."""
+        kick = getattr(request.app.state, "warmup_kick", None)
+        if kick is None or not callable(kick):
+            return JSONResponse(status_code=503, content={"detail": "Warmup scheduler not available"})
+        await kick()
+        return {"ok": True, "warmup_status": getattr(request.app.state, "warmup_status", "unknown")}
 
     @app.post("/api/v1/feedback")
     async def feedback(req: FeedbackRequest, request: Request):
         success, message = request.app.state.feedback_service.submit_feedback(
             rating=req.rating,
             name=req.name,
-            feedback=req.feedback
+            feedback=req.feedback,
         )
         if not success:
             return JSONResponse(
                 status_code=500,
-                content={"success": False, "message": message}
+                content={"success": False, "message": message},
             )
         return {"success": True, "message": message}
 
-    # include routers with prefix
     app.include_router(chat_router, prefix="/api/v1")
-    # Verses, Chapters, and Daily routes moved to frontend static data
 
     return app
 

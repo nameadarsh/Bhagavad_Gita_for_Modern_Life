@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { type AxiosRequestConfig } from 'axios';
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL;
 
@@ -13,6 +13,9 @@ if (!rawBaseUrl) {
 }
 export const STATIC_AUDIO_BASE_URL = 'https://fshfxtshvffidmuevofm.supabase.co/storage/v1/object/public/rag_gita_static_audio';
 
+/** Time until first byte of the chat response. Backend completes RAG + full LLM before streaming begins. */
+const CHAT_CONNECT_TIMEOUT_MS = 180000;
+
 const api = axios.create({
   baseURL: API_URL,
   headers: {
@@ -21,87 +24,64 @@ const api = axios.create({
   timeout: 30000, // 30 seconds
 });
 
-// Add response interceptor for retries and global error handling
+// Max 1 retry for 5xx errors or network errors (skipped when config.skipRetry is set)
 api.interceptors.response.use(
   response => response,
   async error => {
     const { config, response } = error;
-    
-    // Max 1 retry for 5xx errors or network errors
-    if (!config || config._retry || (response && response.status < 500)) {
+    if (!config) {
+      return Promise.reject(error);
+    }
+    if ((config as { skipRetry?: boolean }).skipRetry) {
+      return Promise.reject(error);
+    }
+
+    if (config._retry || (response && response.status < 500)) {
       return Promise.reject(error);
     }
 
     config._retry = true;
-    
-    // Wait 1s before retrying
+
     await new Promise(resolve => setTimeout(resolve, 1000));
     return api(config);
   }
 );
 
 export const chatApi = {
-  sendQuery: async (query: string, sessionId?: string, verseId?: string) => {
-    try {
-      const response = await api.post('/chat', {
-        query,
-        session_id: sessionId,
-        verse_id: verseId,
-      });
-      return response.data;
-    } catch (error) {
-      console.error('API sendQuery error:', error);
-      throw error;
-    }
-  },
   streamQuery: async (query: string, sessionId?: string, verseId?: string, language: string = 'en', signal?: AbortSignal) => {
-    const fetchWithTimeout = async (resource: string, options: any) => {
-      const { timeout = 8000 } = options;
-      
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), timeout);
-      
-      const combinedSignal = signal 
-        ? (signal.addEventListener('abort', () => controller.abort()), controller.signal)
-        : controller.signal;
+    const deadline = new AbortController();
+    const deadlineId = window.setTimeout(() => deadline.abort(), CHAT_CONNECT_TIMEOUT_MS);
 
-      try {
-        const fullUrl = resource.startsWith('http') ? resource : `${window.location.origin}${resource}`;
-        console.log("Fetching from:", fullUrl);
-        console.log("Sending payload:", { query, session_id: sessionId, verse_id: verseId, language });
-        
-        const response = await fetch(resource, {
-          ...options,
-          signal: combinedSignal,
-        });
-        clearTimeout(id);
-        
-        if (!response.ok) {
-          const text = await response.text();
-          console.error("HTTP ERROR:", response.status, text);
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        return response;
-      } catch (err) {
-        console.error("FETCH FAILED:", err);
-        throw err;
+    if (signal) {
+      if (signal.aborted) deadline.abort();
+      else signal.addEventListener('abort', () => deadline.abort(), { once: true });
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query,
+          session_id: sessionId,
+          verse_id: verseId,
+          language,
+        }),
+        signal: deadline.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error('Chat stream HTTP error:', response.status, text);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    };
 
-    return fetchWithTimeout(`${API_URL}/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        query,
-        session_id: sessionId,
-        verse_id: verseId,
-        language,
-      }),
-      timeout: 6000, // 6 seconds timeout for stream initiation
-    });
+      return response;
+    } finally {
+      window.clearTimeout(deadlineId);
+    }
   },
   generateTts: async (text: string, language: string = 'en') => {
     try {
@@ -116,36 +96,40 @@ export const chatApi = {
     }
   },
   submitFeedback: async (rating: number, name?: string, feedback?: string) => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 6000);
+
     try {
       if (feedback && feedback.length > 500) {
         throw new Error('Feedback is too long (max 500 characters)');
       }
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout
 
       const response = await api.post('/feedback', {
         rating,
         name: name?.trim() || undefined,
         feedback: feedback?.trim() || undefined,
       }, {
-        signal: controller.signal
-      });
+        signal: controller.signal,
+        skipRetry: true,
+      } as AxiosRequestConfig & { skipRetry?: boolean });
 
-      clearTimeout(timeoutId);
       return response.data;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('API submitFeedback error:', error);
-      if (error.name === 'AbortError') {
+      if (error instanceof Error && error.name === 'AbortError') {
         throw new Error('Connection timed out. Please try again.');
       }
       throw error;
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   },
 };
 
-export const gitaApi = {
-  // Static content moved to local dataService
-};
+/** Ask the server to schedule another background warmup after failure. */
+export async function requestWarmupRetry(): Promise<void> {
+  if (!API_BASE_URL) return;
+  await fetch(`${API_BASE_URL}/api/v1/warmup/retry`, { method: 'POST' });
+}
 
 export default api;

@@ -188,7 +188,7 @@ async def text_to_speech(req: TTSRequest, request: Request):
         
         if not audio_urls:
             analytics.warning(f"tts_missing_urls text={req.text[:50]}...")
-            # Phase 9: Return empty urls instead of 500 to prevent crash
+            # Return empty URLs instead of 500 when TTS URLs are missing
             return JSONResponse(
                 content={"audio_urls": [], "chunks": []},
                 media_type="application/json; charset=utf-8"
@@ -200,7 +200,7 @@ async def text_to_speech(req: TTSRequest, request: Request):
         )
     except Exception as e:
         analytics.error(f"tts_exception err={e}")
-        # Phase 9: Return empty urls on failure
+        # Return empty URLs on TTS failure
         return JSONResponse(
             content={"audio_urls": [], "chunks": []},
             media_type="application/json; charset=utf-8"
