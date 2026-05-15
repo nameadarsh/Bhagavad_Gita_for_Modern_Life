@@ -3,16 +3,16 @@ import re
 import hashlib
 import logging
 import base64
-import httpx
 from typing import Optional, Tuple
 from supabase import create_client, Client
+
+from app.services.sarvam_key_manager import SarvamKeyManager
 
 logger = logging.getLogger("analytics")
 
 class TtsService:
     def __init__(self):
-        # 3.1 INIT
-        self.sarvam_api_key = os.getenv("SARVAM_API_KEY")
+        self.sarvam_keys = SarvamKeyManager()
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
         self.bucket_name = os.getenv("SUPABASE_BUCKET", "rag_gita_audio")
@@ -179,50 +179,34 @@ class TtsService:
         if self._check_exists(storage_path):
             return self._get_public_url(storage_path), True, None
 
-        if not self.sarvam_api_key:
+        if not self.sarvam_keys.has_keys():
             return None, False, "CONFIG_ERROR"
 
         try:
-            async with httpx.AsyncClient() as client:
-                payload = {
-                    **self._build_sarvam_payload(clean_text, lang_code)
-                }
-                headers = {
-                    "api-subscription-key": self.sarvam_api_key,
-                    "Content-Type": "application/json"
-                }
-                
-                response = await client.post(
-                    "https://api.sarvam.ai/text-to-speech",
-                    headers=headers,
-                    json=payload,
-                    timeout=30.0
-                )
-                
-                if response.status_code != 200:
-                    logger.error(f"[TTS] Sarvam API Error: {response.status_code} - {response.text}")
-                    return None, False, "TTS_FAILED"
-                
-                data = response.json()
-                audios = data.get("audios", [])
-                if not audios:
-                    logger.error(f"[TTS] No audio chunks in Sarvam response for text: {clean_text[:50]}...")
-                    return None, False, "TTS_FAILED"
-                
-                audio_bytes = base64.b64decode("".join(audios))
-                
-                if self.supabase:
-                    try:
-                        self.supabase.storage.from_(self.bucket_name).upload(
-                            path=storage_path,
-                            file=audio_bytes,
-                            file_options={"content-type": "audio/mpeg"}
-                        )
-                    except Exception as e:
-                        logger.error(f"[TTS] Supabase upload failed: {e}")
-                        # Continue even if upload fails, we have the URL if it's already there or just return URL
-                
-                return self._get_public_url(storage_path), False, None
+            payload = self._build_sarvam_payload(clean_text, lang_code)
+            response, err = await self.sarvam_keys.post_tts(payload=payload, timeout=30.0)
+            if err or response is None:
+                return None, False, err or "TTS_FAILED"
+
+            data = response.json()
+            audios = data.get("audios", [])
+            if not audios:
+                logger.error("[TTS] No audio chunks in Sarvam response text_len=%s", len(clean_text))
+                return None, False, "TTS_FAILED"
+
+            audio_bytes = base64.b64decode("".join(audios))
+
+            if self.supabase:
+                try:
+                    self.supabase.storage.from_(self.bucket_name).upload(
+                        path=storage_path,
+                        file=audio_bytes,
+                        file_options={"content-type": "audio/mpeg"},
+                    )
+                except Exception as e:
+                    logger.error(f"[TTS] Supabase upload failed: {e}")
+
+            return self._get_public_url(storage_path), False, None
 
         except Exception as e:
             logger.error(f"[TTS] Chunk error: {e}")
@@ -256,73 +240,50 @@ class TtsService:
             logger.info(f"[TTS] Cache hit: {storage_path}")
             return public_url, True, None
 
-        # 2. GENERATE VIA SARVAM
-        if not self.sarvam_api_key:
-            logger.error("[TTS] SARVAM_API_KEY missing")
+        if not self.sarvam_keys.has_keys():
+            logger.error("[TTS] No Sarvam API keys configured")
             return None, False, "CONFIG_ERROR"
 
         try:
-            async with httpx.AsyncClient() as client:
-                # 3.6 SARVAM TTS CALL (CRITICAL)
-                payload = {
-                    **self._build_sarvam_payload(clean_text, lang_code)
-                }
-                headers = {
-                    "api-subscription-key": self.sarvam_api_key,
-                    "Content-Type": "application/json"
-                }
-                
-                logger.info(f"[TTS] Generating: len={len(clean_text)} lang={lang_code}")
-                
-                response = await client.post(
-                    "https://api.sarvam.ai/text-to-speech",
-                    headers=headers,
-                    json=payload,
-                    timeout=30.0
+            payload = self._build_sarvam_payload(clean_text, lang_code)
+            logger.info(f"[TTS] Generating: len={len(clean_text)} lang={lang_code} sarvam_keys={self.sarvam_keys.key_count}")
+
+            response, err = await self.sarvam_keys.post_tts(payload=payload, timeout=30.0)
+            if err or response is None:
+                return None, False, err or "TTS_FAILED"
+
+            data = response.json()
+            audios = data.get("audios", [])
+            if not audios:
+                logger.error("[TTS] No audio chunks in response")
+                return None, False, "TTS_FAILED"
+
+            combined_base64 = "".join(audios)
+            audio_bytes = base64.b64decode(combined_base64)
+
+            if len(audio_bytes) < 5000:
+                logger.error(f"[TTS] Validation failed: size={len(audio_bytes)} < 5000")
+                return None, False, "INVALID_AUDIO"
+
+            logger.info(f"[TTS] Generated: chunks={len(audios)} size={len(audio_bytes)}")
+
+            if not self.supabase:
+                logger.error("[TTS] Cannot upload: Supabase not initialized")
+                return None, False, "CONFIG_ERROR"
+
+            try:
+                self.supabase.storage.from_(self.bucket_name).upload(
+                    path=storage_path,
+                    file=audio_bytes,
+                    file_options={"content-type": "audio/mpeg"},
                 )
-                
-                # 3.7 RESPONSE HANDLING
-                if response.status_code != 200:
-                    logger.error(f"[TTS] API Error: {response.status_code} {response.text}")
-                    return None, False, "TTS_FAILED"
-                
-                data = response.json()
-                audios = data.get("audios", [])
-                if not audios:
-                    logger.error("[TTS] No audio chunks in response")
-                    return None, False, "TTS_FAILED"
-                
-                # Join and decode
-                combined_base64 = "".join(audios)
-                audio_bytes = base64.b64decode(combined_base64)
-                
-                # 3.8 VALIDATE AUDIO
-                if len(audio_bytes) < 5000:
-                    logger.error(f"[TTS] Validation failed: size={len(audio_bytes)} < 5000")
-                    return None, False, "INVALID_AUDIO"
-                
-                # 3.7 LOGGING (STEP 7)
-                logger.info(f"[TTS] Generated: chunks={len(audios)} size={len(audio_bytes)}")
+                logger.info(f"[TTS] Uploaded to Supabase: {storage_path}")
+            except Exception as e:
+                logger.error(f"[TTS] Supabase upload failed: {e}")
+                return None, False, "UPLOAD_FAILED"
 
-                # 3.9 UPLOAD TO SUPABASE
-                if not self.supabase:
-                    logger.error("[TTS] Cannot upload: Supabase not initialized")
-                    return None, False, "CONFIG_ERROR"
-                
-                try:
-                    self.supabase.storage.from_(self.bucket_name).upload(
-                        path=storage_path,
-                        file=audio_bytes,
-                        file_options={"content-type": "audio/mpeg"}
-                    )
-                    logger.info(f"[TTS] Uploaded to Supabase: {storage_path}")
-                except Exception as e:
-                    logger.error(f"[TTS] Supabase upload failed: {e}")
-                    return None, False, "UPLOAD_FAILED"
-
-                # 3.10 FINAL RESPONSE
-                public_url = self._get_public_url(storage_path)
-                return public_url, False, None
+            public_url = self._get_public_url(storage_path)
+            return public_url, False, None
 
         except Exception as e:
             logger.error(f"[TTS] Pipeline error: {e}")

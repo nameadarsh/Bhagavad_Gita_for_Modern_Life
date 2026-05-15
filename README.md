@@ -69,7 +69,7 @@ Single FastAPI app (`backend/app/main.py`). RAG and services are loaded once in 
 
 ## Environment requirements
 
-**Backend (`backend/.env`)** — see `backend/README.md` for the full variable list. Minimum includes `LLM_PROVIDER`, `SMALL_LLM_PROVIDER`, `LLM_API_KEYS`, plus keys for TTS and Supabase as used by your deployment.
+**Backend (`backend/.env`)** — see `backend/README.md` and `backend/.env.example`. Minimum includes `LLM_PROVIDER`, `SMALL_LLM_PROVIDER`, `LLM_API_KEYS`, plus Supabase and Sarvam TTS keys. Prefer **`SARVAM_API_KEYS=key1,key2`** for automatic quota failover; legacy **`SARVAM_API_KEY`** still works when the list is unset.
 
 **Frontend (`frontend/.env`)**
 

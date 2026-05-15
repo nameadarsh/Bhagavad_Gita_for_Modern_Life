@@ -21,7 +21,9 @@ LLM_PROVIDER=groq
 SMALL_LLM_PROVIDER=groq
 LLM_API_KEYS=your_llm_keys
 SMALL_LLM_API_KEYS=your_small_llm_keys
-SARVAM_API_KEY=your_sarvam_key
+# Sarvam TTS (comma-separated; falls back to SARVAM_API_KEY if unset)
+SARVAM_API_KEYS=your_sarvam_key_1,your_sarvam_key_2
+# SARVAM_API_KEY=your_sarvam_key
 SUPABASE_URL=your_supabase_url
 SUPABASE_SERVICE_KEY=your_supabase_service_key
 SUPABASE_BUCKET=rag_gita_audio
@@ -50,6 +52,15 @@ Neither endpoint loads RAG or models.
 
 - Dynamic TTS: Sarvam + Supabase bucket `SUPABASE_BUCKET` (default `rag_gita_audio`).  
 - Static verse audio: public bucket `rag_gita_static_audio` (paths built in `TtsService`).
+
+### Sarvam API key fallback
+
+- Set **`SARVAM_API_KEYS`** as a comma-separated list (`key1,key2,key3`).  
+- If unset, **`SARVAM_API_KEY`** (single key) is used for backward compatibility.  
+- On quota/rate-limit/auth exhaustion (e.g. HTTP 429, 402, 5xx, or matching error bodies), TTS automatically tries the next key once per key (no infinite retry).  
+- Client/payload errors (e.g. 400, 422) do not rotate keys.  
+- Logs record **key index** and failure reason only — never key values.  
+- See `app/services/sarvam_key_manager.py` and `backend/.env.example`.
 
 ## Logs
 
