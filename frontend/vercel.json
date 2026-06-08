@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/health_check",
+      "destination": "https://bhagavad-gita-for-modern-life.onrender.com/health_check"
+    },
+    {
+      "source": "/health",
+      "destination": "https://bhagavad-gita-for-modern-life.onrender.com/health"
+    },
+    {
+      "source": "/api/v1/:path*",
+      "destination": "https://bhagavad-gita-for-modern-life.onrender.com/api/v1/:path*"
+    }
+  ]
+}

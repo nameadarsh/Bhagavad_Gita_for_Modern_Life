@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 import Navbar from './Navbar';
 import { useBackendStore } from '../store/backendStore';
 import { requestWarmupRetry } from '../services/api';
+import { HAS_API_CONFIG } from '../services/apiBase';
 
 interface LayoutProps {
   children: ReactNode;
@@ -14,7 +15,7 @@ const Layout = ({ children }: LayoutProps) => {
   const warmupTimedOut = useBackendStore((s) => s.warmupTimedOut);
   const warmupFailureReason = useBackendStore((s) => s.warmupFailureReason);
   const restartWarmup = useBackendStore((s) => s.restartWarmup);
-  const hasApiUrl = Boolean(import.meta.env.VITE_API_BASE_URL);
+  const hasApiUrl = HAS_API_CONFIG;
 
   const showBanner = !isBackendReady && (isWarmingUp || warmupTimedOut || !hasApiUrl);
 
@@ -29,8 +30,8 @@ const Layout = ({ children }: LayoutProps) => {
           <div className="rounded-xl border border-orange-200 bg-white/90 px-4 py-3 text-sm text-slate-700 shadow-sm flex flex-wrap items-center gap-3">
             {!hasApiUrl ? (
               <span className="font-medium text-slate-800">
-                Missing <code className="text-xs bg-slate-100 px-1 rounded">VITE_API_BASE_URL</code>. Set it in{' '}
-                <code className="text-xs bg-slate-100 px-1 rounded">frontend/.env</code> and reload.
+                API is not configured. Set <code className="text-xs bg-slate-100 px-1 rounded">VITE_API_BASE_URL</code> on Vercel
+                or use same-origin proxy via <code className="text-xs bg-slate-100 px-1 rounded">vercel.json</code>, then redeploy.
               </span>
             ) : warmupTimedOut ? (
               <>
