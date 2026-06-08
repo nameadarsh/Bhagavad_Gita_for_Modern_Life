@@ -27,11 +27,19 @@ from app.routes.chat import router as chat_router
 from app.models.schemas import FeedbackRequest
 
 
+async def _preload_embedder(app: FastAPI) -> None:
+    """Load embedding model in the background after RAG data is ready."""
+    try:
+        await asyncio.to_thread(get_embedder)
+        app.state.embedder_ready = get_embedder() is not None
+    except Exception as e:
+        log = getattr(app.state, "analytics_logger", None) or logging.getLogger("analytics")
+        log.warning(f"embedder_preload_failed: {e}")
+        app.state.embedder_ready = False
+
+
 def _sync_load_rag(app: FastAPI, base_dir: Path) -> bool:
-    """
-    CPU / blocking I/O: FAISS, JSON, embedder, service wiring.
-    Must run in a worker thread (asyncio.to_thread), never on the event loop.
-    """
+    """CPU / blocking I/O: FAISS, JSON, service wiring (embedder loads separately)."""
     if getattr(app.state, "rag_available", False):
         return True
 
@@ -49,10 +57,6 @@ def _sync_load_rag(app: FastAPI, base_dir: Path) -> bool:
             app.state.faiss_index = loaded.faiss_index
             app.state.prompts = loaded.prompts
 
-            embedder = get_embedder()
-            if embedder is None:
-                raise RuntimeError("Failed to initialize embedding model")
-
             keys = ApiKeyManager()
             app.state.api_keys = keys
             app.state.rag_service = RagService(
@@ -67,7 +71,9 @@ def _sync_load_rag(app: FastAPI, base_dir: Path) -> bool:
             app.state.rag_available = True
             return True
         except Exception as e:
+            err_msg = str(e)[:500]
             app.state.analytics_logger.error(f"rag_load_error: {e}")
+            app.state.warmup_error = err_msg
             app.state.rag_available = False
             return False
         finally:
@@ -78,9 +84,11 @@ def create_app() -> FastAPI:
     load_dotenv()
 
     missing = []
-    for var in ["LLM_PROVIDER", "SMALL_LLM_PROVIDER", "LLM_API_KEYS"]:
+    for var in ["LLM_PROVIDER", "SMALL_LLM_PROVIDER"]:
         if os.getenv(var) is None:
             missing.append(var)
+    if not os.getenv("LLM_API_KEYS") and not os.getenv("LLM_API_KEY"):
+        missing.append("LLM_API_KEYS or LLM_API_KEY")
     if missing:
         raise RuntimeError(f"Missing required environment variable(s): {', '.join(missing)}")
 
@@ -94,15 +102,28 @@ def create_app() -> FastAPI:
         app.state.warmup_error = None
 
         async def warmup_worker() -> None:
+            max_attempts = 3
             try:
-                ok = await asyncio.to_thread(_sync_load_rag, app, base_dir)
+                ok = False
+                for attempt in range(max_attempts):
+                    ok = await asyncio.to_thread(_sync_load_rag, app, base_dir)
+                    if ok:
+                        break
+                    if attempt < max_attempts - 1:
+                        log = getattr(app.state, "analytics_logger", None) or logging.getLogger("analytics")
+                        log.warning("warmup_retry attempt=%s/%s", attempt + 1, max_attempts)
+                        await asyncio.sleep(5)
+
                 async with app.state.warmup_schedule_lock:
                     if ok:
                         app.state.warmup_status = "ready"
                         app.state.warmup_error = None
                     else:
                         app.state.warmup_status = "failed"
-                        app.state.warmup_error = "RAG or embedding initialization returned false"
+                        if not getattr(app.state, "warmup_error", None):
+                            app.state.warmup_error = "RAG initialization failed after retries"
+                if ok:
+                    asyncio.create_task(_preload_embedder(app))
             except asyncio.CancelledError:
                 async with app.state.warmup_schedule_lock:
                     if getattr(app.state, "warmup_status", "") != "ready":
@@ -152,7 +173,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -173,6 +194,7 @@ def create_app() -> FastAPI:
     app.state.analytics_logger = logging.getLogger("analytics")
     app.state.rag_available = False
     app.state.rag_loading = False
+    app.state.embedder_ready = False
     app.state.rag_lock = Lock()
     app.state.feedback_service = FeedbackService()
 
@@ -195,6 +217,7 @@ def create_app() -> FastAPI:
         ws = getattr(app.state, "warmup_status", "starting")
         rag_ready = bool(getattr(app.state, "rag_available", False))
         rag_loading = bool(getattr(app.state, "rag_loading", False))
+        embedder_ready = bool(getattr(app.state, "embedder_ready", False))
         err = getattr(app.state, "warmup_error", None)
 
         compat_status = "ok" if rag_ready else ws
@@ -205,6 +228,7 @@ def create_app() -> FastAPI:
             "service": "gita-rag-backend",
             "rag_available": rag_ready,
             "rag_loading": rag_loading,
+            "embedder_ready": embedder_ready,
         }
         if err and ws == "failed":
             body["warmup_error"] = err

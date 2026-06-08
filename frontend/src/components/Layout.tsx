@@ -12,6 +12,7 @@ const Layout = ({ children }: LayoutProps) => {
   const isBackendReady = useBackendStore((s) => s.isBackendReady);
   const isWarmingUp = useBackendStore((s) => s.isWarmingUp);
   const warmupTimedOut = useBackendStore((s) => s.warmupTimedOut);
+  const warmupFailureReason = useBackendStore((s) => s.warmupFailureReason);
   const restartWarmup = useBackendStore((s) => s.restartWarmup);
   const hasApiUrl = Boolean(import.meta.env.VITE_API_BASE_URL);
 
@@ -33,7 +34,10 @@ const Layout = ({ children }: LayoutProps) => {
               </span>
             ) : warmupTimedOut ? (
               <>
-                <span className="font-medium text-slate-800">The guidance service is not ready. Check the API URL or try again.</span>
+                <span className="font-medium text-slate-800">
+                  {warmupFailureReason ||
+                    'The guidance service is not ready. Check the API URL or try again.'}
+                </span>
                 <button
                   type="button"
                   onClick={() => {

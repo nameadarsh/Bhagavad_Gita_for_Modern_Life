@@ -3,11 +3,18 @@ import { API_BASE_URL } from '../services/api';
 import { useBackendStore } from '../store/backendStore';
 
 const POLL_INTERVAL_MS = 4000;
-const MAX_TOTAL_WAIT_MS = 120000;
-const HEALTH_FETCH_MS = 130000;
+const DEFAULT_MAX_WAIT_MS = 300000; // 5 min — deployed cold starts often exceed 2 min
+const HEALTH_FETCH_MS = 30000; // per-request timeout; health_check must stay fast
 
 function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
+}
+
+function parseMaxWaitMs(): number {
+  const raw = import.meta.env.VITE_WARMUP_MAX_MS;
+  if (!raw) return DEFAULT_MAX_WAIT_MS;
+  const n = Number.parseInt(String(raw), 10);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_WAIT_MS;
 }
 
 export function useBackendReadiness() {
@@ -15,6 +22,7 @@ export function useBackendReadiness() {
   const setBackendReady = useBackendStore((s) => s.setBackendReady);
   const setWarmingUp = useBackendStore((s) => s.setWarmingUp);
   const setWarmupTimedOut = useBackendStore((s) => s.setWarmupTimedOut);
+  const setWarmupFailureReason = useBackendStore((s) => s.setWarmupFailureReason);
 
   const generationRef = useRef(0);
 
@@ -23,17 +31,21 @@ export function useBackendReadiness() {
       setWarmingUp(false);
       setBackendReady(false);
       setWarmupTimedOut(true);
+      setWarmupFailureReason('VITE_API_BASE_URL is not set in the frontend build.');
       return;
     }
 
     const myGen = ++generationRef.current;
     const stale = () => myGen !== generationRef.current;
-    const deadline = Date.now() + MAX_TOTAL_WAIT_MS;
+    const deadline = Date.now() + parseMaxWaitMs();
+    let sawSuccessfulResponse = false;
+    let networkErrorStreak = 0;
 
     const run = async () => {
       if (stale()) return;
       setWarmingUp(true);
       setWarmupTimedOut(false);
+      setWarmupFailureReason(null);
       setBackendReady(false);
 
       while (!stale() && Date.now() < deadline) {
@@ -47,11 +59,15 @@ export function useBackendReadiness() {
 
           if (stale()) return;
 
+          networkErrorStreak = 0;
+          sawSuccessfulResponse = true;
+
           if (res.ok) {
             const data = (await res.json()) as {
               rag_available?: boolean;
               status?: string;
               warmup_status?: string;
+              warmup_error?: string;
             };
             if (stale()) return;
 
@@ -59,6 +75,7 @@ export function useBackendReadiness() {
               setBackendReady(true);
               setWarmingUp(false);
               setWarmupTimedOut(false);
+              setWarmupFailureReason(null);
               return;
             }
             const ws = data.warmup_status ?? data.status;
@@ -68,11 +85,16 @@ export function useBackendReadiness() {
               setBackendReady(false);
               setWarmingUp(false);
               setWarmupTimedOut(true);
+              setWarmupFailureReason(
+                data.warmup_error ||
+                  'The guidance service failed to start. Check backend logs and environment variables.'
+              );
               return;
             }
           }
         } catch {
           if (stale()) return;
+          networkErrorStreak += 1;
         } finally {
           window.clearTimeout(tid);
         }
@@ -84,6 +106,15 @@ export function useBackendReadiness() {
       if (!stale()) {
         setWarmingUp(false);
         setWarmupTimedOut(true);
+        if (!sawSuccessfulResponse) {
+          setWarmupFailureReason(
+            `Cannot reach the API at ${API_BASE_URL}. Verify VITE_API_BASE_URL and that the backend is running.`
+          );
+        } else {
+          setWarmupFailureReason(
+            'The guidance service is still starting. This can take several minutes on a cold deploy — try Retry.'
+          );
+        }
       }
     };
 
@@ -92,5 +123,11 @@ export function useBackendReadiness() {
     return () => {
       generationRef.current++;
     };
-  }, [warmupAttempt, setBackendReady, setWarmingUp, setWarmupTimedOut]);
+  }, [
+    warmupAttempt,
+    setBackendReady,
+    setWarmingUp,
+    setWarmupTimedOut,
+    setWarmupFailureReason,
+  ]);
 }
