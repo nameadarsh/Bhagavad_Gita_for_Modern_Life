@@ -88,48 +88,33 @@ class TtsService:
         Splits text into sentence-based chunks and generates audio for each.
         Returns (audio_urls, chunk_texts)
         """
-        # 1. Clean and split text
-        # Remove verse references and translations in brackets for TTS
-        # The user wants ONLY the LLM response text spoken.
-        # Our LLM response is formatted as:
-        # {reflection}
-        # {insight}
-        # {sanskrit}
-        # ({translation})
-        # {meaning}
-        
-        # Split by double newlines to separate blocks
+        logger.info("[TTS] get_audio_chunks started text_len=%s language=%s", len(text or ""), language)
+
         blocks = [b.strip() for b in text.split('\n\n') if b.strip()]
-        
-        # Heuristic: Sanskrit blocks often contain specific characters or are followed by (Translation)
-        # We want to skip blocks that look like Sanskrit or bracketed translations
+
         tts_blocks = []
         for block in blocks:
-            # Skip if contains many Sanskrit characters or is bracketed
-            # Fix: Ensure block is a string and handle potential empty blocks
             if not isinstance(block, str) or not block.strip():
                 continue
-                
+
             if re.search(r'[\u0900-\u097F]', block) and len(re.findall(r'[\u0900-\u097F]', block)) > 5:
                 continue
             if block.startswith('(') and block.endswith(')'):
                 continue
             tts_blocks.append(block)
-        
+
         full_tts_text = " ".join(tts_blocks)
-        
+
         if not full_tts_text.strip():
             logger.warning("[TTS] No text remaining after cleaning")
             return [], []
-        
-        # 2. Sentence-based chunking
-        # Split by . ! ? followed by space or newline
+
         sentences = re.split(r'(?<=[.!?])\s+', full_tts_text)
-        
+
         chunks = []
         current_chunk = ""
-        max_chars = 600 # Safe limit between 500-800
-        
+        max_chars = 600
+
         for sentence in sentences:
             if len(current_chunk) + len(sentence) < max_chars:
                 current_chunk += (" " + sentence if current_chunk else sentence)
@@ -140,13 +125,19 @@ class TtsService:
         if current_chunk:
             chunks.append(current_chunk.strip())
 
+        logger.info("[TTS] text split into %s chunk(s)", len(chunks))
+
         audio_urls = []
-        # Process chunks
-        for chunk in chunks:
-            url, _, _ = await self._get_single_chunk_audio(chunk, language)
+        for i, chunk in enumerate(chunks):
+            logger.info("[TTS] processing chunk %s/%s len=%s", i + 1, len(chunks), len(chunk))
+            url, cached, err = await self._get_single_chunk_audio(chunk, language)
             if url:
+                logger.info("[TTS] chunk %s ready cached=%s", i + 1, cached)
                 audio_urls.append(url)
-        
+            else:
+                logger.error("[TTS] chunk %s failed err=%s", i + 1, err)
+
+        logger.info("[TTS] get_audio_chunks finished url_count=%s", len(audio_urls))
         return audio_urls, chunks
 
     async def _get_single_chunk_audio(self, clean_text: str, language: str) -> Tuple[Optional[str], bool, Optional[str]]:
@@ -177,17 +168,22 @@ class TtsService:
         storage_path = f"tts/{base_lang}/{text_hash}.mp3"
         
         if self._check_exists(storage_path):
+            logger.info("[TTS] cache hit path=%s", storage_path)
             return self._get_public_url(storage_path), True, None
 
         if not self.sarvam_keys.has_keys():
+            logger.error("[TTS] No Sarvam API keys configured")
             return None, False, "CONFIG_ERROR"
 
         try:
+            logger.info("[TTS] sarvam call started text_len=%s lang=%s", len(clean_text), lang_code)
             payload = self._build_sarvam_payload(clean_text, lang_code)
-            response, err = await self.sarvam_keys.post_tts(payload=payload, timeout=30.0)
+            response, err = await self.sarvam_keys.post_tts(payload=payload, timeout=45.0)
             if err or response is None:
+                logger.error("[TTS] sarvam call failed err=%s", err)
                 return None, False, err or "TTS_FAILED"
 
+            logger.info("[TTS] sarvam response received status=200")
             data = response.json()
             audios = data.get("audios", [])
             if not audios:
@@ -195,21 +191,29 @@ class TtsService:
                 return None, False, "TTS_FAILED"
 
             audio_bytes = base64.b64decode("".join(audios))
+            logger.info("[TTS] audio decoded size=%s bytes", len(audio_bytes))
 
-            if self.supabase:
-                try:
-                    self.supabase.storage.from_(self.bucket_name).upload(
-                        path=storage_path,
-                        file=audio_bytes,
-                        file_options={"content-type": "audio/mpeg"},
-                    )
-                except Exception as e:
-                    logger.error(f"[TTS] Supabase upload failed: {e}")
+            if not self.supabase:
+                logger.error("[TTS] Cannot store audio: Supabase not initialized")
+                return None, False, "CONFIG_ERROR"
 
-            return self._get_public_url(storage_path), False, None
+            try:
+                self.supabase.storage.from_(self.bucket_name).upload(
+                    path=storage_path,
+                    file=audio_bytes,
+                    file_options={"content-type": "audio/mpeg"},
+                )
+                logger.info("[TTS] audio stored path=%s", storage_path)
+            except Exception as e:
+                logger.error("[TTS] Supabase upload failed: %s", e)
+                return None, False, "UPLOAD_FAILED"
+
+            public_url = self._get_public_url(storage_path)
+            logger.info("[TTS] URL returned path=%s", storage_path)
+            return public_url, False, None
 
         except Exception as e:
-            logger.error(f"[TTS] Chunk error: {e}")
+            logger.error("[TTS] Chunk error: %s", e)
             return None, False, "PIPELINE_ERROR"
 
     async def get_audio(self, text: str, language: str = "en") -> Tuple[Optional[str], bool, Optional[str]]:

@@ -179,31 +179,40 @@ async def chat(req: ChatRequest, request: Request):
 async def text_to_speech(req: TTSRequest, request: Request):
     state = request.app.state
     analytics = state.analytics_logger
-    
+
+    text_len = len(req.text or "")
+    analytics.info(f"[TTS] request received text_len={text_len} language={req.language}")
+
     if not hasattr(state, "tts_service"):
+        analytics.error("[TTS] service unavailable — tts_service not on app.state")
         raise HTTPException(status_code=503, detail="TTS_SERVICE_UNAVAILABLE")
-        
+
     try:
+        analytics.info("[TTS] provider call started (chunk generation)")
         audio_urls, chunks = await state.tts_service.get_audio_chunks(req.text, req.language)
-        
+        analytics.info(
+            f"[TTS] provider response received url_count={len(audio_urls)} chunk_count={len(chunks)}"
+        )
+
         if not audio_urls:
-            analytics.warning(f"tts_missing_urls text={req.text[:50]}...")
-            # Return empty URLs instead of 500 when TTS URLs are missing
-            return JSONResponse(
-                content={"audio_urls": [], "chunks": []},
-                media_type="application/json; charset=utf-8"
+            analytics.warning(
+                f"[TTS] no audio URLs returned text_preview={req.text[:80]!r} chunks_attempted={len(chunks)}"
             )
-            
+            return JSONResponse(
+                content={"audio_urls": [], "chunks": chunks, "error": "TTS_NO_AUDIO"},
+                media_type="application/json; charset=utf-8",
+            )
+
+        analytics.info(f"[TTS] URL returned first_url={audio_urls[0][:120]}")
         return JSONResponse(
             content={"audio_urls": audio_urls, "chunks": chunks},
-            media_type="application/json; charset=utf-8"
+            media_type="application/json; charset=utf-8",
         )
     except Exception as e:
-        analytics.error(f"tts_exception err={e}")
-        # Return empty URLs on TTS failure
+        analytics.error(f"[TTS] exception err={type(e).__name__}: {e}")
         return JSONResponse(
-            content={"audio_urls": [], "chunks": []},
-            media_type="application/json; charset=utf-8"
+            content={"audio_urls": [], "chunks": [], "error": "TTS_EXCEPTION"},
+            media_type="application/json; charset=utf-8",
         )
 
 

@@ -40,23 +40,33 @@ class LlmService:
         language_name = lang_map.get(language.lower(), "English")
         
         intent_descriptions = {
-            "emotional_motivation": "a need for inspiration and purpose to overcome inertia.",
-            "emotional_sadness": "sorrow or grief, seeking peace and an eternal perspective.",
-            "emotional_confusion": "uncertainty about their path or the right course of action.",
-            "emotional_anxiety": "stress and worry, needing equanimity and detachment.",
-            "situational_decision": "a crossroad where they must choose their duty over personal desire.",
-            "situational_moral_conflict": "a struggle between ethical dharma and worldly benefit.",
-            "situational_conflict": "external or internal opposition that requires strength and detachment.",
-            "knowledge_query": "a sincere desire to understand the deeper philosophy of the Gita.",
-            "general": "a search for general wisdom and guidance."
+            "emotional_anxiety": "carrying worry about what may happen next, mind racing ahead of the present.",
+            "emotional_sadness": "a heaviness or grief that makes it hard to feel present and engaged.",
+            "emotional_loneliness": "feeling disconnected, unseen, or without meaningful company.",
+            "emotional_anger": "strong frustration or resentment that is hard to settle.",
+            "emotional_guilt": "regret or self-blame weighing on them after something they did or failed to do.",
+            "emotional_confusion": "uncertainty about the right path or a conflict between what they want and what they believe.",
+            "situational_career": "questions about work, studies, exams, or where their life direction should go.",
+            "situational_performance": "fear of being judged, speaking in public, or performing under scrutiny.",
+            "situational_habit": "struggling with procrastination, consistency, or building discipline.",
+            "situational_relationship": "missing someone, navigating connection, or relational tension.",
+            "knowledge_query": "wanting to understand Gita philosophy or a specific teaching.",
+            "general": "seeking practical wisdom for a life situation.",
+            # Legacy intent keys from keyword fallback
+            "sad": "a heaviness or grief that makes it hard to feel present and engaged.",
+            "fear": "carrying worry or dread about what may happen next.",
+            "confused": "uncertainty about the right path or what to choose.",
+            "philosophical": "wanting to understand deeper philosophical ideas.",
         }
-        
-        # Required format: prompt_template.format(...)
+
+        situation_focus = self._situation_focus(query=query, intent=intent, desired_outcome=desired_outcome)
+
         return template.format(
             query=query,
             intent=intent,
-            intent_desc=intent_descriptions.get(intent, "a search for wisdom."),
+            intent_desc=intent_descriptions.get(intent, "seeking practical wisdom for a life situation."),
             desired_outcome=desired_outcome,
+            situation_focus=situation_focus,
             language_name=language_name,
             sanskrit=str(verse.get("sanskrit", "")),
             english=str(verse.get("english", "")),
@@ -64,72 +74,107 @@ class LlmService:
             speaker=str(verse.get("speaker", "")),
             chapter_summary=chapter_summary or "",
             chapter=verse.get("chapter", 0),
-            verse_num=verse.get("verse", 0)
+            verse_num=verse.get("verse", 0),
         )
 
     @staticmethod
+    def _situation_focus(*, query: str, intent: str, desired_outcome: str) -> str:
+        """Guide the LLM toward distinct angles per situation type."""
+        by_intent = {
+            "emotional_anxiety": "uncertainty, future-thinking, and how to steady the mind when outcomes feel unknown.",
+            "emotional_sadness": "loss, acceptance, and allowing grief without losing oneself in it.",
+            "emotional_loneliness": "connection, self-worth, and being whole even when others are absent.",
+            "emotional_anger": "reaction, self-control, and separating the feeling from the action taken.",
+            "emotional_guilt": "accountability without self-punishment, and how to move forward responsibly.",
+            "emotional_confusion": "decision-making under uncertainty and trusting one's considered judgment.",
+            "situational_career": "choosing a direction, handling setbacks, and acting without needing perfect certainty.",
+            "situational_performance": "performance anxiety, fear of judgment, and showing up despite nerves.",
+            "situational_habit": "habits, consistency, and starting small rather than waiting for motivation.",
+            "situational_relationship": "longing, attachment to people, and healthy ways to hold connection.",
+            "knowledge_query": "clear explanation of the idea — keep it practical, not academic.",
+        }
+        if intent in by_intent:
+            return by_intent[intent]
+
+        q = (query or "").lower()
+        if any(w in q for w in ["lonely", "alone", "isolated", "no friends"]):
+            return by_intent["emotional_loneliness"]
+        if any(w in q for w in ["angry", "anger", "furious", "rage", "mad at"]):
+            return by_intent["emotional_anger"]
+        if any(w in q for w in ["guilty", "guilt", "regret", "ashamed"]):
+            return by_intent["emotional_guilt"]
+        if any(w in q for w in ["career", "job", "exam", "failed", "study", "college"]):
+            return by_intent["situational_career"]
+        if any(w in q for w in ["stage", "present", "audience", "perform", "public speaking"]):
+            return by_intent["situational_performance"]
+        if any(w in q for w in ["procrastinat", "lazy", "discipline", "habit", "consistent"]):
+            return by_intent["situational_habit"]
+        if any(w in q for w in ["miss", "misses", "missing someone", "breakup", "left me"]):
+            return by_intent["situational_relationship"]
+        if any(w in q for w in ["anxious", "anxiety", "worried", "worry", "stress", "nervous"]):
+            return by_intent["emotional_anxiety"]
+        if any(w in q for w in ["sad", "depressed", "grief", "lost", "hopeless"]):
+            return by_intent["emotional_sadness"]
+
+        outcome_focus = {
+            "stability": "finding an inner steadiness when circumstances feel unstable.",
+            "clarity": "cutting through noise to see the next reasonable step.",
+            "strength": "drawing on inner resilience without forcing positivity.",
+            "purpose": "meaning and direction in everyday action.",
+            "acceptance": "working with what cannot be changed while still acting wisely.",
+            "dharma": "doing what is right when it is difficult, without moralizing.",
+        }
+        return outcome_focus.get(desired_outcome, "the user's specific situation — keep guidance concrete and distinct.")
+
+    @staticmethod
     def _fallback_answer(verse: Dict[str, Any], intent: str = "general", desired_outcome: str = "wisdom") -> str:
-        english = verse.get('english', '')
-        sanskrit = verse.get('sanskrit', '')
-        speaker = verse.get('speaker', 'Krishna')
-        explanation = verse.get('brief_explanation', '')
+        explanation = verse.get("brief_explanation", "")
 
-        # Interpret based on what the user actually needs, not keyword mapping
         outcome_reflections = {
-            "strength": "The weight of loss or grief often makes the world feel fragile and uncertain.",
-            "stability": "When anxiety pulls the mind in many directions, it becomes difficult to find a single point of peace.",
-            "clarity": "The fog of doubt can make even the simplest choice feel like an impossible burden.",
-            "purpose": "Searching for meaning often leads to a feeling of being adrift without a clear anchor.",
-            "dharma": "Being torn between what you want and what you know is right creates a deep internal tension.",
-            "wisdom": "Seeking understanding is the first step toward moving beyond the noise of the moment."
+            "strength": "What you are facing likely feels heavier than you expected, and that weight is real.",
+            "stability": "When the mind keeps jumping ahead, it is hard to feel settled in the present moment.",
+            "clarity": "Not knowing the right move can make even small decisions feel overwhelming.",
+            "purpose": "Searching for direction often comes with a sense of being stuck between options.",
+            "acceptance": "Some of what hurts cannot be undone quickly, and that slow process is part of being human.",
+            "dharma": "You may feel pulled between what you want and what you believe is right.",
+            "wisdom": "You are looking for something steady to hold onto while things feel uncertain.",
+            "uplifting guidance": "There seems to be a heaviness that is making it difficult to feel engaged with daily life.",
+            "deeper explanation": "You want to understand an idea clearly, not just hear something comforting.",
         }
 
-        outcome_connections = {
-            "strength": "In the Gita, Krishna reminds Arjuna that while forms change, the essence within remains untouched by any storm.",
-            "stability": "Krishna's guidance to a trembling Arjuna was not to stop the war, but to find the steady center within it.",
-            "clarity": "When Arjuna's mind was clouded by confusion, the teaching pointed him back to his own innate wisdom.",
-            "purpose": "The path Krishna showed was one where purpose is found in the action itself, not in the shadows of the future.",
-            "dharma": "Arjuna's struggle with duty is a mirror to our own moments of choosing righteousness over comfort.",
-            "wisdom": "The conversation on the battlefield reminds us that every doubt is an invitation to look deeper."
+        outcome_principles = {
+            "strength": "Resilience grows when you act from your values even when the outcome is unclear.",
+            "stability": "Steadiness comes from noticing the mind's restlessness without letting it dictate every choice.",
+            "clarity": "Clarity often arrives after you take one honest step, not before you start.",
+            "purpose": "Meaning tends to show up in how you show up today, not only in a distant goal.",
+            "acceptance": "Acceptance is not giving up — it is seeing what is true so you can respond wisely.",
+            "dharma": "Integrity means choosing the harder right over the easier wrong, one decision at a time.",
+            "wisdom": "Understanding deepens when you reflect on your situation without rushing to fix it.",
+            "uplifting guidance": "Healing often moves in layers; allow yourself time without demanding instant relief.",
+            "deeper explanation": "A teaching becomes useful when you connect it to something you already live with.",
         }
 
-        # Pick based on desired_outcome, fall back to generic if unknown
         reflection = outcome_reflections.get(desired_outcome, outcome_reflections["wisdom"])
-        connection = outcome_connections.get(desired_outcome, outcome_connections["wisdom"])
+        principle = outcome_principles.get(desired_outcome, outcome_principles["wisdom"])
 
-        # Extract a meaningful phrase from explanation if available
-        meaning_hint = ""
+        takeaway = "Pick one small action you can take today that aligns with what matters to you, without needing perfect certainty."
         if explanation and len(explanation) > 20:
-            # Use explanation to guide but not copy
             explanation_lower = explanation.lower()
             if "action" in explanation_lower or "karma" in explanation_lower:
-                meaning_hint = "Act without attachment to results — this is the heart of the teaching."
-            elif "soul" in explanation_lower or "eternal" in explanation_lower:
-                meaning_hint = "The true self is beyond birth, death, and any suffering it witnesses."
+                takeaway = "Focus on the quality of your effort today rather than controlling every result."
             elif "detachment" in explanation_lower or "equanimity" in explanation_lower:
-                meaning_hint = "Hold lightly to outcomes. Equanimity is the art of staying centered."
-            elif "devotion" in explanation_lower or "bhakti" in explanation_lower:
-                meaning_hint = "Surrender does not mean passivity — it means offering the fruit of action to the Divine."
-            elif "dharma" in explanation_lower or "duty" in explanation_lower:
-                meaning_hint = "Dharma is not always easy, but it is always worth choosing."
-            elif "wisdom" in explanation_lower or "knowledge" in explanation_lower:
-                meaning_hint = "True knowledge is not information — it is the recognition of what has always been."
-            else:
-                # Generic interpretive hint based on the verse's teaching
-                meaning_hint = "The verse holds a mirror to our situation. Take from it what resonates."
+                takeaway = "Notice when you are gripping an outcome too tightly, and practice loosening that grip once."
+            elif "knowledge" in explanation_lower or "wisdom" in explanation_lower:
+                takeaway = "Write down what you already know is true about your situation — clarity often starts there."
 
-        return f"""{reflection}
-
-{connection}
-
-{meaning_hint}"""
+        return f"{reflection}\n\n{principle}\n\n{takeaway}"
 
     def _call_openai_like(self, *, base_url: str, api_key: str, model: str, prompt: str) -> str:
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         payload = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.2,
+            "temperature": 0.55,
         }
         
         # Retry logic: 2 attempts

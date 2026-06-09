@@ -151,7 +151,7 @@ export const useChatStore = create<ChatState>()(
               playChunk(index + 1);
             } else {
               set({ playingMessageId: null, playingAudioType: null });
-              // Silent fail
+              onEnd?.();
             }
           };
 
@@ -167,7 +167,7 @@ export const useChatStore = create<ChatState>()(
           } catch (e) {
             console.error("Playback failed:", e);
             set({ playingMessageId: null, playingAudioType: null });
-            // Silent fail
+            onEnd?.();
           }
         };
 

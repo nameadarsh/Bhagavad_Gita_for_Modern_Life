@@ -81,7 +81,11 @@ export const chatApi = {
   },
   generateTts: async (text: string, language: string = 'en') => {
     try {
-      const response = await api.post('/tts', { text, language });
+      const response = await api.post(
+        '/tts',
+        { text, language },
+        { timeout: 120000 }
+      );
       return response.data;
     } catch (error) {
       console.error('API generateTts error:', error);

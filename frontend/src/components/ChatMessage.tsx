@@ -14,6 +14,7 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
   const isBackendReady = useBackendStore((state) => state.isBackendReady);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLocalLoading, setIsLocalLoading] = useState(false);
+  const [ttsError, setTtsError] = useState<string | null>(null);
   const [placeholderType, setPlaceholderType] = useState<string | null>(null);
   
   const placeholderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -48,26 +49,32 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
     }
 
     if (isLocalLoading || !message.content) return;
-    
+
     setIsLocalLoading(true);
-    
+    setTtsError(null);
+
     try {
       const data = await chatApi.generateTts(message.content, language);
       const urls = data.audio_urls || (data.audio_url ? [data.audio_url] : []);
-      
-      if (urls.length > 0) {
-        await playAudio(
-          message.id, 
-          urls, 
-          'chat', 
-          () => setIsLocalLoading(false),
-          () => setIsLocalLoading(false)
-        );
-      } else {
-        setIsLocalLoading(false);
+
+      if (urls.length === 0) {
+        const errMsg = data.error || 'Audio could not be generated';
+        console.error('[TTS] No audio URLs returned:', errMsg);
+        setTtsError('Audio unavailable');
+        return;
       }
+
+      await playAudio(
+        message.id,
+        urls,
+        'chat',
+        undefined,
+        () => setTtsError(null)
+      );
     } catch (error) {
       console.error('Failed to play audio:', error);
+      setTtsError('Audio unavailable');
+    } finally {
       setIsLocalLoading(false);
     }
   };
@@ -201,9 +208,13 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
                   <span>
                     {isLocalLoading ? 'Loading...' : 
                      isPlaying ? 'Stop' : 
+                     ttsError ? 'Retry audio' :
                      'Listen to Guidance'}
                   </span>
                 </button>
+                {ttsError && !isLocalLoading && (
+                  <p className="text-[10px] text-red-400 font-medium">{ttsError}</p>
+                )}
                 {isFallback && (
                   <p className="text-[10px] text-slate-400 font-medium italic opacity-70">
                     Fallback mode

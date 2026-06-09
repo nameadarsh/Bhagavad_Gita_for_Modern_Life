@@ -165,32 +165,47 @@ class QueryService:
                 "themes": []
             }
 
-        # Simple Intent Mapping per requirements
-        if any(w in q for w in ["sad", "depressed", "unhappy", "sorrow", "grief", "pain", "crying", "lost", "broken"]):
-            desired_outcome = "uplifting guidance"
-            intent = "sad"
-        elif any(w in q for w in ["fear", "afraid", "scared", "anxious", "worry", "stress", "tension", "panic", "nervous"]):
-            desired_outcome = "strength"
-            intent = "fear"
-        elif any(w in q for w in ["confused", "unsure", "doubt", "not sure", "uncertain", "dilemma", "which"]):
-            desired_outcome = "clarity"
-            intent = "confused"
-        elif any(w in q for w in ["what is", "who is", "explain", "meaning of", "tell me about", "understand", "philosophical", "philosophy"]):
-            desired_outcome = "deeper explanation"
-            intent = "philosophical"
+        # Intent mapping — user-centered labels aligned with chat prompt
+        if any(w in q for w in ["lonely", "alone", "isolated", "no one", "no friends"]):
+            intent, desired_outcome = "emotional_loneliness", "acceptance"
+        elif any(w in q for w in ["angry", "anger", "furious", "rage", "mad at", "frustrated"]):
+            intent, desired_outcome = "emotional_anger", "stability"
+        elif any(w in q for w in ["guilty", "guilt", "regret", "ashamed", "shame"]):
+            intent, desired_outcome = "emotional_guilt", "acceptance"
+        elif any(w in q for w in ["sad", "depressed", "unhappy", "sorrow", "grief", "pain", "crying", "hopeless"]):
+            intent, desired_outcome = "emotional_sadness", "acceptance"
+        elif any(w in q for w in ["fear", "afraid", "scared", "anxious", "anxiety", "worry", "stress", "tension", "panic", "nervous"]):
+            intent, desired_outcome = "emotional_anxiety", "stability"
+        elif any(w in q for w in ["career", "job", "work", "exam", "failed", "study", "college", "university"]):
+            intent, desired_outcome = "situational_career", "clarity"
+        elif any(w in q for w in ["stage", "present", "audience", "perform", "public speaking", "presentation"]):
+            intent, desired_outcome = "situational_performance", "strength"
+        elif any(w in q for w in ["procrastinat", "lazy", "discipline", "habit", "consistent", "motivation"]):
+            intent, desired_outcome = "situational_habit", "purpose"
+        elif any(w in q for w in ["miss", "missing", "breakup", "left me", "relationship"]):
+            intent, desired_outcome = "situational_relationship", "acceptance"
+        elif any(w in q for w in ["lost", "confused", "unsure", "doubt", "not sure", "uncertain", "dilemma", "which"]):
+            intent, desired_outcome = "emotional_confusion", "clarity"
+        elif any(w in q for w in ["what is", "who is", "explain", "meaning of", "tell me about", "philosophical", "philosophy"]):
+            intent, desired_outcome = "knowledge_query", "wisdom"
         else:
-            desired_outcome = "wisdom"
-            intent = "general"
+            intent, desired_outcome = "general", "wisdom"
 
-        # Theme mapping based on inferred need
         theme_mapping = {
-            "uplifting guidance": ["soul", "eternal", "detachment", "peace", "devotion", "hope"],
-            "strength": ["duty", "action", "discipline", "purpose", "yoga", "strength"],
-            "clarity": ["dharma", "knowledge", "wisdom", "guidance", "truth"],
-            "deeper explanation": ["knowledge", "jnana", "wisdom", "self", "philosophy"],
-            "wisdom": ["knowledge", "jnana", "wisdom", "self", "understanding"]
+            "emotional_loneliness": ["connection", "self-worth", "peace", "identity"],
+            "emotional_anger": ["equanimity", "self-control", "patience", "clarity"],
+            "emotional_guilt": ["forgiveness", "acceptance", "integrity", "peace"],
+            "emotional_sadness": ["acceptance", "peace", "hope", "equanimity"],
+            "emotional_anxiety": ["equanimity", "focus", "courage", "peace"],
+            "situational_career": ["action", "clarity", "purpose", "courage"],
+            "situational_performance": ["courage", "focus", "equanimity", "action"],
+            "situational_habit": ["discipline", "action", "focus", "consistency"],
+            "situational_relationship": ["acceptance", "detachment", "love", "peace"],
+            "emotional_confusion": ["clarity", "wisdom", "guidance", "truth"],
+            "knowledge_query": ["knowledge", "wisdom", "self", "understanding"],
+            "general": ["wisdom", "guidance", "peace", "understanding"],
         }
-        themes = theme_mapping.get(desired_outcome, theme_mapping["wisdom"])
+        themes = theme_mapping.get(intent, theme_mapping["general"])
 
         # Clean query: remove filler words
         filler = {"how", "to", "the", "a", "an", "i", "me", "my", "what", "why", "when", "where", "can", "could", "should", "would", "do", "does"}
